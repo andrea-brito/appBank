@@ -50,7 +50,14 @@ export default function Dashboard() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Este mês</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Este mês</Text>
+          <Link href="/backup" asChild>
+            <Pressable accessibilityRole="button" accessibilityLabel="Backup" hitSlop={12}>
+              <Text style={styles.backupIcon}>💾</Text>
+            </Pressable>
+          </Link>
+        </View>
         <View style={styles.cards}>
           <Stat label="Entradas" value={formatBRL(incomeCents)} color="#22c55e" />
           <Stat label="Saídas" value={formatBRL(expenseCents)} color="#ef4444" />
@@ -126,6 +133,8 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f9fafb' },
   header: { padding: 16, gap: 12 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  backupIcon: { fontSize: 22 },
   title: { fontSize: 22, fontWeight: '700', color: '#111827' },
   cards: { flexDirection: 'row', gap: 12 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 4 },
