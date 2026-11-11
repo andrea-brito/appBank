@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
-    "@tanstack/react-query": "^5.106.1",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.4",
     "expo": "~58.0.23",
@@ -17,11 +16,11 @@
     "expo-sqlite": "~58.0.15",
     "expo-status-bar": "~58.0.4",
     "react": "19.3.0",
+    "react-dom": "19.3.0",
     "react-native": "0.88.1",
     "react-native-safe-area-context": "~5.11.1",
     "react-native-screens": "~4.30.1",
-    "zod": "^4.6.7",
-    "zustand": "^5.0.16"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
@@ -30,6 +29,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~58.0.4",
+    "tsx": "4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -37,6 +37,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "emulator": "emulator -avd Medium_Phone_API_37.0",
+    "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0"
   },
