@@ -18,10 +18,11 @@ Este documento explica **como o app é organizado e por quê**. Para rodar o pro
 12. [Decisões de projeto](#12-decisões-de-projeto)
 13. [Dívida técnica e riscos](#13-dívida-técnica-e-riscos)
 14. [Como estender](#14-como-estender)
+15. [Backup](#15-backup)
 
 ## 1. Princípios
 
-- **Local-first.** Os dados nunca saem do aparelho. Não há servidor, login nem telemetria.
+- **Local-first.** Os dados ficam no aparelho. Não há servidor, login nem telemetria. A única saída é o arquivo de backup, sempre cifrado e por ação explícita do usuário.
 - **Seguro por padrão.** Sem criptografia ativa, o app se recusa a abrir (falha fechada).
 - **Dinheiro é inteiro.** Valores são centavos inteiros; `float` só aparece na formatação.
 - **Regras puras, I/O nas bordas.** A lógica de negócio não toca banco, rede nem UI.
@@ -140,10 +141,12 @@ Se `PRAGMA cipher_version` não retornar nada, o SQLCipher não está no binári
 
 O fallback para senha do aparelho está habilitado (`disableDeviceFallback: false`).
 
+**Cobertura, não desmontagem.** Antes do primeiro desbloqueio, nenhuma tela é montada (nenhuma consulta roda). Depois dele, rebloquear **cobre** o app com uma camada opaca, em vez de desmontá-lo. Ao desmontar, a navegação voltava para a primeira aba e qualquer operação em andamento se perdia. Isso acontecia toda vez que um seletor de arquivo do sistema mandava o app para segundo plano no meio de um backup. Enquanto bloqueado, o conteúdo coberto fica oculto para leitores de tela e não recebe toques.
+
 ### Pontos de atenção
 
 - `unavailable` libera o acesso. Num aparelho sem tela de bloqueio, qualquer pessoa abre o app. A proteção em repouso (SQLCipher) continua valendo, mas a chave é lida sem desafio.
-- Não há rotação de chave, nem backup da chave. Perdê-la (ou limpar os dados do app) torna o banco ilegível.
+- Não há rotação de chave, e a chave do banco nunca sai do aparelho. Perdê-la (ou limpar os dados do app) torna o banco ilegível; os dados só voltam por um [backup](#15-backup).
 - O comportamento do SecureStore no Android não foi auditado neste projeto; o comentário no código fala em Keychain (iOS).
 
 ## 6. Modelo de dados
@@ -309,6 +312,7 @@ Heurística sobre texto colado. Valor: o **maior** `R$ x,xx` encontrado (comprov
 | `/deposit` | `deposit.tsx` | Modal "Guardar na meta" (`goalId`) |
 | `/import` | `import.tsx` | Modal "Importar boleto / PIX" (+ OFX) |
 | `/achievements` | `achievements.tsx` | Tela "Conquistas" |
+| `/backup` | `backup.tsx` | Modal "Backup" (💾 no Resumo) |
 
 Esquema de deep link: `appbank://`. O `_layout.tsx` raiz só monta a pilha depois de banco destravado, desbloqueio biométrico, migrations e seed.
 
@@ -324,6 +328,8 @@ Os testes cobrem a camada `domain`, onde está o risco financeiro. São arquivos
 | `goal.test.ts` | Progresso, restante e meta mensal |
 | `goalAlert.test.ts` | Marcos e alertas |
 | `ofx.test.ts` | Parser de OFX |
+| `backupCrypto.test.ts` | Cifra do backup: senha errada e adulteração nunca abrem |
+| `backup.test.ts` | Formato do backup: validação e referências |
 
 Rodam com `npm test` (`scripts/test.mjs` executa cada `*.test.ts` com `tsx`). O CI no GitHub Actions executa `typecheck`, `lint` e `test`.
 
@@ -333,7 +339,8 @@ Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `application`, `da
 
 | Decisão | Motivo | Consequência |
 | --- | --- | --- |
-| Local-first, sem backend | Privacidade e simplicidade; app pessoal | Sem sincronização nem backup automático |
+| Local-first, sem backend | Privacidade e simplicidade; app pessoal de um único usuário | Sem sincronização nem backup automático |
+| Backup em arquivo cifrado, não Supabase | Resolve a troca de aparelho sem servidor, conta ou LGPD | Manual; o usuário guarda arquivo e senha |
 | SQLCipher + chave no SecureStore | Proteger dados financeiros em repouso | Exige development build; chave presa ao aparelho |
 | Falhar se não houver criptografia | Evitar falsa sensação de segurança | App não abre no Expo Go |
 | Centavos inteiros | Evitar erros de float | Conversão obrigatória nas bordas |
@@ -348,7 +355,7 @@ Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `application`, `da
 
 Ordenados por impacto:
 
-1. **Sem backup ou exportação.** Perda do aparelho ou limpeza de dados é irreversível.
+1. **Backup só manual.** Depende de o usuário lembrar de exportar; o que for registrado depois do último backup se perde com o aparelho. Lembrete periódico seria o próximo passo.
 2. **Fator de vencimento do boleto:** a escolha do ciclo por proximidade falha para boletos pagos muito antes ou muito depois do vencimento (mais de 4.500 dias, cerca de 12 anos, de distância). Na prática é irrelevante.
 3. **Chaves estrangeiras** possivelmente desativadas: o código não executa `PRAGMA foreign_keys = ON`. Verificar o padrão do `expo-sqlite` e, se necessário, ativar após o `PRAGMA key`.
 4. **Sem `CHECK` no banco** para `amount_cents > 0` e `target_cents > 0`.
@@ -388,3 +395,84 @@ Ordenados por impacto:
 2. Caso de uso em `application/` que monte `ImportRow[]` e chame `importTransactions(rows, source)`.
 3. Garantir `externalId` estável para a deduplicação funcionar.
 4. Se for um `source` novo, incluí-lo no enum do schema (gera migration) e no `zod` de `addExpense`.
+
+## 15. Backup
+
+Objetivo: levar os dados para outro aparelho (troca de iPhone) sem servidor. Copiar o arquivo do banco não serve, porque a chave do SQLCipher é `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e não sai do aparelho. O backup é, portanto, uma **exportação lógica** das tabelas, cifrada com uma senha do usuário.
+
+### Fluxo
+
+```mermaid
+flowchart LR
+  subgraph Criar
+    A[readSnapshot] --> B[buildBackup + JSON]
+    B --> C["encryptBackup (scrypt + XChaCha20-Poly1305)"]
+    C --> D[saveBackupFile: pasta escolhida]
+  end
+  subgraph Restaurar
+    E[pickBackupFile] --> F[decryptBackup]
+    F --> G["parseBackup (zod + referências)"]
+    G --> H["restoreSnapshot (transação)"]
+  end
+```
+
+| Camada | Arquivo | Papel |
+| --- | --- | --- |
+| domain | `backupCrypto.ts` | Envelope cifrado. Puro: sal e nonce são injetados. |
+| domain | `backup.ts` | Formato e validação (`zod`) do conteúdo. |
+| data | `backupRepository.ts` | Lê todas as tabelas; restaura numa transação. |
+| data | `backupFile.ts` | Seletor de pasta e de arquivo (`expo-file-system`). |
+| application | `backup.ts` | Orquestra; gera sal e nonce com `expo-crypto`; exige senha de 8 ou mais caracteres. |
+| app | `backup.tsx` | Tela, aberta pelo 💾 no Resumo. |
+
+### Criptografia
+
+- **Derivação da chave:** scrypt, N=2¹⁵, r=8, p=1 (cerca de 32 MB), sal aleatório de 16 bytes, senha normalizada em NFKC (o mesmo texto digitado gera os mesmos bytes em qualquer teclado).
+- **Cifra:** XChaCha20-Poly1305 com nonce aleatório de 24 bytes. É autenticada: senha errada ou qualquer byte alterado **falha**, nunca devolve lixo.
+- **Cabeçalho autenticado:** formato, versão, parâmetros do scrypt, sal e cifra entram como dados associados (AAD). Alterar o custo no arquivo também falha.
+- **Proteção contra arquivo hostil:** só aceita N entre 2¹⁰ e 2¹⁶, potência de 2, r=8 e p de 1 a 4, antes de qualquer cálculo caro. Isso limita a memória a cerca de 64 MB.
+- **Bibliotecas:** `@noble/ciphers` e `@noble/hashes` (JS puro, auditadas, sem código nativo, versões fixas). Não usam `crypto.getRandomValues`, porque a aleatoriedade vem do `expo-crypto`.
+
+Formato do arquivo (`.appbank`, JSON):
+
+```json
+{
+  "format": "appbank-backup-encrypted",
+  "version": 1,
+  "kdf": { "name": "scrypt", "N": 32768, "r": 8, "p": 1, "salt": "<hex>" },
+  "cipher": "xchacha20poly1305",
+  "nonce": "<hex>",
+  "data": "<hex>"
+}
+```
+
+Dentro de `data` está `{ format: "appbank-backup", version: 1, exportedAt, data: { categories, transactions, goals, goalDeposits } }`.
+
+### Por que o custo não é menor
+
+O arquivo vai para fora do aparelho (iCloud Drive), onde pode sofrer ataque de força bruta offline. N=2¹⁵ já está abaixo do recomendado pela OWASP para scrypt (2¹⁷). Como backup é uma operação rara, a escolha foi aceitar a espera. No emulador Android, em build de desenvolvimento, criar levou cerca de 33 s e restaurar entre 45 e 85 s. Esse ambiente é o pior caso, porque o JS roda sem otimização num emulador x86. **Não foi medido em iPhone nem em build de produção.** Se ficar lento demais na prática, a saída é derivar a chave em código nativo (por exemplo, `react-native-quick-crypto`), não baixar N.
+
+### Restauração
+
+- **Validação antes de gravar:** o conteúdo é tratado como entrada não confiável. `parseBackup` valida tipos, centavos inteiros, `amount_cents > 0`, alvo de meta `> 0`, depósito `≠ 0`, enums e **referências** (lançamento com categoria inexistente ou depósito com meta inexistente rejeita o arquivo inteiro). Essas regras cobrem o que o banco não impõe (não há `CHECK` nem `PRAGMA foreign_keys`).
+- **Tudo ou nada:** `restoreSnapshot` roda numa transação do drizzle. No driver `expo-sqlite`, a transação é síncrona (`begin`, callback, `commit`, e `rollback` se lançar), por isso usa `.run()` e `.all()`, sem `await`. Lotes de 50 linhas ficam bem abaixo do limite de parâmetros do SQLite.
+- **Mescla, não substitui:**
+  - Categorias: *upsert* por id. Num aparelho novo, o seed já criou as 7 categorias padrão com os mesmos ids e sem orçamento, e o upsert traz os orçamentos de volta.
+  - Lançamentos, metas e depósitos: *insert or ignore* por id. Restaurar duas vezes, ou por cima de dados existentes, não duplica nem apaga.
+  - O retorno conta só o que **entrou de fato** (`returning`).
+
+### Verificado
+
+- `backupCrypto.test.ts`: ida e volta; senha errada rejeitada; senha Unicode equivalente aceita; texto cifrado alterado rejeitado; cabeçalho alterado rejeitado; custos fora da faixa rejeitados; arquivo que não é backup rejeitado.
+- `backup.test.ts`: ida e volta exata (centavos, nulos, retirada negativa); formato e versão errados; valores inválidos; referências quebradas; backup vazio válido.
+- No emulador Android: backup criado e salvo em Documents; **o arquivo gerado no celular foi descriptografado no Node** com o mesmo código (prova de compatibilidade entre Hermes e Node), contendo exatamente os dados da tela; senha errada rejeitada; restauração por cima dos mesmos dados retornou 0 lançamentos novos e não duplicou nada.
+
+### Não verificado
+
+- iPhone real e iCloud Drive (o seletor do iOS é outro).
+- Restauração num aparelho realmente vazio. A lógica do upsert de categorias foi pensada para esse caso, mas não foi exercitada de ponta a ponta, porque isso exigiria apagar os dados do emulador.
+- Tempo em build de produção.
+
+### Ao mudar o schema
+
+Toda coluna nova em `schema.ts` precisa entrar em `backup.ts`, junto com um aumento de `BACKUP_VERSION`. A leitura de versões antigas precisa ser decidida: hoje, uma versão diferente é rejeitada. O `backup.test.ts` quebra se a ida e volta perder um campo.

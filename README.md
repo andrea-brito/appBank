@@ -1,6 +1,6 @@
 # appBank
 
-App pessoal de finanças, **local-first** e **criptografado**. Registra lançamentos, controla orçamento por categoria, acompanha metas de economia e importa boleto, comprovante PIX e extrato OFX. Todos os dados ficam no aparelho: não há backend, conta de usuário nem sincronização.
+App pessoal de finanças, **local-first** e **criptografado**. Registra lançamentos, controla orçamento por categoria, acompanha metas de economia e importa boleto, comprovante PIX e extrato OFX. Todos os dados ficam no aparelho: não há backend, conta de usuário nem sincronização. Para trocar de aparelho, há backup manual em arquivo criptografado.
 
 > Status: projeto pessoal em desenvolvimento (v1.0.0, `private`). Android validado em emulador. iOS não foi testado (veja [Limitações](#limitações-conhecidas)).
 
@@ -14,6 +14,7 @@ App pessoal de finanças, **local-first** e **criptografado**. Registra lançame
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Banco de dados e migrations](#banco-de-dados-e-migrations)
 - [Build com EAS](#build-com-eas)
+- [Backup e troca de aparelho](#backup-e-troca-de-aparelho)
 - [Solução de problemas](#solução-de-problemas)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Documentação adicional](#documentação-adicional)
@@ -29,6 +30,7 @@ App pessoal de finanças, **local-first** e **criptografado**. Registra lançame
 | **Sugestão de economia** | Estimativa de quanto guardar por mês com base nos últimos 3 meses e na folga do orçamento. É heurística, não é recomendação financeira. |
 | **Conquistas** | 5 selos calculados a partir do estado atual (nada é persistido). |
 | **Importação** | Boleto bancário (linha digitável de 47 dígitos), texto de comprovante PIX e arquivo OFX. |
+| **Backup** | Arquivo criptografado com uma senha sua, salvo onde você escolher (ex.: iCloud Drive). Restaurar soma os dados aos atuais, sem duplicar. Serve para trocar de aparelho. |
 | **Segurança** | Banco SQLCipher, chave no Keychain/Keystore e bloqueio por biometria ou senha do aparelho. |
 
 ## Stack
@@ -38,6 +40,7 @@ App pessoal de finanças, **local-first** e **criptografado**. Registra lançame
 - **expo-sqlite** com **SQLCipher** + **drizzle-orm** / **drizzle-kit**
 - **expo-secure-store**, **expo-crypto**, **expo-local-authentication**
 - **zod** (validação nas bordas), **date-fns** (períodos)
+- **@noble/ciphers** e **@noble/hashes** (criptografia do backup, JS puro e auditado)
 
 Versões exatas em [`package.json`](package.json).
 
@@ -137,6 +140,15 @@ Perfis em [`eas.json`](eas.json): `development` (dev client, APK), `preview` (in
 eas build --profile development --platform android
 ```
 
+## Backup e troca de aparelho
+
+1. No aparelho atual, toque em 💾 no Resumo.
+2. Em **Criar backup**, defina uma senha (mínimo 8 caracteres), toque em **Escolher pasta e salvar** e escolha uma pasta fora do aparelho, como o iCloud Drive.
+3. No aparelho novo, instale o app e abra-o uma vez.
+4. Toque em 💾, digite a senha em **Restaurar backup** e escolha o arquivo `.appbank`.
+
+Criar e restaurar levam alguns segundos, porque a senha passa por um cálculo propositalmente pesado. **Anote a senha em um lugar seguro**: sem ela o arquivo não abre, e não existe recuperação. Detalhes técnicos em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#15-backup).
+
 ## Solução de problemas
 
 | Sintoma | Causa provável | Solução |
@@ -151,11 +163,13 @@ eas build --profile development --platform android
 | `Erro ao preparar o banco: Failed to run the query 'CREATE TABLE ...'` | Banco criado parcialmente numa execução anterior. | Veja o aviso abaixo. |
 | `Criptografia (SQLCipher) não está ativa` | Build sem SQLCipher (ex.: Expo Go). | Use um development build. |
 
-> **Atenção:** a solução para o erro de migration em ambiente de teste é limpar os dados do app (`adb shell pm clear com.appbank.financas`). Isso **apaga o banco e a chave de criptografia, sem recuperação**. Não há backup nem exportação. Nunca faça isso com dados que você precise manter.
+> **Atenção:** a solução para o erro de migration em ambiente de teste é limpar os dados do app (`adb shell pm clear com.appbank.financas`). Isso **apaga o banco e a chave de criptografia, sem recuperação**. Antes, crie um backup (💾 no Resumo). Nunca faça isso com dados que você precise manter.
 
 ## Limitações conhecidas
 
-- **Sem backup, exportação ou restauração.** Perder o aparelho, desinstalar o app ou limpar os dados perde tudo. A chave é `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e não migra entre aparelhos.
+- **Backup é manual.** Não há backup automático nem sincronização. Sem um arquivo de backup recente, perder o aparelho, desinstalar ou limpar os dados perde o que foi registrado depois dele. A chave do banco é `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e não migra entre aparelhos: só o arquivo de backup leva os dados para outro iPhone.
+- **Senha do backup não tem recuperação.** Esqueceu, o arquivo não abre.
+- **Restaurar soma, não substitui.** Não há como apagar dados pelo backup.
 - **Sem edição ou exclusão** de lançamentos pela UI, e sem CRUD de categorias (há 7 categorias fixas).
 - **Boleto:** só bancário (47 dígitos). Concessionárias (iniciam em 8) são rejeitadas. Os dígitos verificadores não são validados. O fator de vencimento é ambíguo entre ciclos (reinicia em 1000 após 21/02/2025); o app escolhe a data mais próxima de hoje.
 - **PIX:** heurística de texto (maior valor encontrado, primeira data, linha com "para/destinatário/favorecido"). O usuário confirma antes de salvar.
