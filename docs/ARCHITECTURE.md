@@ -282,8 +282,8 @@ Todas as importações passam por `src/application`, gravam com `source` corresp
 - A linha digitável é convertida no código de barras de 44 dígitos, descartando os dígitos verificadores dos três primeiros campos.
 - Valor: últimos 10 dígitos, já em centavos.
 - Vencimento: fator de 4 dígitos × 1 dia, a partir de **07/10/1997**. Fator `0000` significa sem vencimento (`null`).
+- **Reinício do fator:** depois de 9999 (21/02/2025) o fator volta a 1000, num ciclo de 9000 dias. Um fator entre 1000 e 9999 é, portanto, ambíguo (ex.: 1627 pode ser jul/2002 ou nov/2026). `parseBoleto(raw, now)` calcula as duas datas e escolhe a **mais próxima de `now`**, partindo da premissa de que um boleto é lido perto do vencimento. Fatores abaixo de 1000 só existem no primeiro ciclo. O parâmetro `now` é injetável para teste.
 - **Não valida** os dígitos verificadores.
-- Limitação conhecida do fator de vencimento: o fator reinicia em 2025 (volta a 1000). O código usa a base fixa de 1997, então boletos com vencimento após 21/02/2025 podem resultar em data errada. **Isso não está tratado.**
 
 ### PIX (`parsePixReceipt`)
 
@@ -319,13 +319,15 @@ Os testes cobrem a camada `domain`, onde está o risco financeiro. São arquivos
 | Arquivo | Garante |
 | --- | --- |
 | `money.test.ts` | Conversão e soma exatas, sem deriva de float |
-| `boleto.test.ts` | Extração de valor e vencimento da linha digitável |
+| `boleto.test.ts` | Valor e vencimento da linha digitável, incluindo o reinício do fator em 2025; PIX |
 | `budgetStatus.test.ts` | Limiares de 70% e 100% |
 | `goal.test.ts` | Progresso, restante e meta mensal |
 | `goalAlert.test.ts` | Marcos e alertas |
 | `ofx.test.ts` | Parser de OFX |
 
-Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `pixReceipt`, `application`, `data` e UI. Não há CI configurado.
+Rodam com `npm test` (`scripts/test.mjs` executa cada `*.test.ts` com `tsx`). O CI no GitHub Actions executa `typecheck`, `lint` e `test`.
+
+Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `application`, `data` e UI. O `pixReceipt` é coberto dentro de `boleto.test.ts`.
 
 ## 12. Decisões de projeto
 
@@ -347,17 +349,16 @@ Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `pixReceipt`, `app
 Ordenados por impacto:
 
 1. **Sem backup ou exportação.** Perda do aparelho ou limpeza de dados é irreversível.
-2. **Fator de vencimento do boleto** pós-2025 não tratado (veja seção 9).
+2. **Fator de vencimento do boleto:** a escolha do ciclo por proximidade falha para boletos pagos muito antes ou muito depois do vencimento (mais de 4.500 dias, cerca de 12 anos, de distância). Na prática é irrelevante.
 3. **Chaves estrangeiras** possivelmente desativadas: o código não executa `PRAGMA foreign_keys = ON`. Verificar o padrão do `expo-sqlite` e, se necessário, ativar após o `PRAGMA key`.
 4. **Sem `CHECK` no banco** para `amount_cents > 0` e `target_cents > 0`.
 5. **`unavailable` desbloqueia** o app em aparelho sem tela de bloqueio.
 6. **Sem edição ou exclusão** de lançamentos, nem CRUD de categorias.
-7. **Dependências sem uso:** `@tanstack/react-query` e `zustand`. Remover ou adotar.
-8. **Resíduos do template:** `App.tsx` e `index.ts` não são usados.
-9. **`randomId` duplicado** em dois repositórios.
-10. **Escrita fora de `application`:** `deposit.tsx` chama `archiveGoal` direto do repositório.
-11. **Consultas sem filtro de período:** o Resumo e o Orçamento carregam a tabela `transactions` inteira em memória (`db.select().from(schema.transactions)`) e filtram o mês no cliente. Funciona com poucos dados, mas degrada com anos de histórico; o ideal é filtrar por `occurred_at` no SQL (já existe índice).
-12. **iOS não validado**; ícones e splash são placeholders.
+7. **`randomId` duplicado** em dois repositórios.
+8. **Escrita fora de `application`:** `deposit.tsx` chama `archiveGoal` direto do repositório.
+9. **Consultas sem filtro de período:** o Resumo e o Orçamento carregam a tabela `transactions` inteira em memória (`db.select().from(schema.transactions)`) e filtram o mês no cliente. Funciona com poucos dados, mas degrada com anos de histórico; o ideal é filtrar por `occurred_at` no SQL (já existe índice).
+10. **iOS não validado**; ícones e splash são placeholders.
+11. **Peer dependencies:** `react-dom` está fixado em 19.3.0 só para o `npm ci` resolver (o app não usa web). Revisar ao atualizar o SDK.
 
 ## 14. Como estender
 

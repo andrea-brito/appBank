@@ -84,6 +84,7 @@ O simulador de iOS só roda em macOS. Em um iPhone físico é preciso um develop
 | `npm run android` | `expo run:android` (build nativo + instala). |
 | `npm run ios` | `expo run:ios` (somente macOS). |
 | `npm run emulator` | Abre o AVD `Medium_Phone_API_37.0`. |
+| `npm test` | Roda todos os `src/**/*.test.ts`. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm run lint` | ESLint com `--max-warnings 0`. |
 
@@ -92,21 +93,13 @@ O simulador de iOS só roda em macOS. Em um iPhone físico é preciso um develop
 Os testes são **auto-verificações executáveis**, sem framework. Cada arquivo roda sozinho, imprime `all checks passed` e sai com código diferente de zero se algo falhar.
 
 ```powershell
-npx tsx src/domain/money.test.ts
-npx tsx src/domain/boleto.test.ts
-npx tsx src/domain/budgetStatus.test.ts
-npx tsx src/domain/goal.test.ts
-npx tsx src/domain/goalAlert.test.ts
-npx tsx src/domain/ofx.test.ts
+npm test                                  # todos os arquivos
+npx tsx src/domain/money.test.ts          # um arquivo isolado
 ```
 
-Para rodar todos de uma vez:
+O CI (`.github/workflows/ci.yml`) roda `typecheck`, `lint` e `test` a cada push na `main` e em pull requests.
 
-```powershell
-Get-ChildItem src -Recurse -Filter *.test.ts | ForEach-Object { npx tsx $_.FullName; if ($LASTEXITCODE) { exit 1 } }
-```
-
-Cobertura atual: somente a camada `domain` (regras puras). `application`, `data`, `period`, `achievements`, `savingsSuggestion`, `pixReceipt` e a UI não têm testes.
+Cobertura atual: somente a camada `domain` (regras puras). `application`, `data`, `period`, `achievements`, `savingsSuggestion` e a UI não têm testes.
 
 ## Estrutura do projeto
 
@@ -150,6 +143,7 @@ eas build --profile development --platform android
 | --- | --- | --- |
 | Tela branca ao abrir | Metro falhou ao montar o bundle. Olhe o terminal do Metro. | Veja as linhas abaixo. |
 | `Cannot find module 'babel-preset-expo'` | Falta a devDependency (já declarada no `package.json`). | `npm install`; depois `npx expo start --dev-client -c`. |
+| `ERESOLVE` ao instalar pacote | `react-dom` resolve para uma versão que exige outro `react`. | O `react-dom` está fixado em 19.3.0, igual ao `react`. Mantenha os dois na mesma versão. Evite `--legacy-peer-deps`: ele gera um lockfile que o `npm ci` rejeita. |
 | `ConfigError: package.json ... does not exist` | Comando rodado fora da raiz do projeto. | Entre na pasta do projeto. |
 | `Port 8081 is being used` | Metro antigo ainda rodando. | Encerre o processo que escuta na 8081 e suba de novo. |
 | `Device emulator-5554 is in state offline` | Emulador ainda iniciando ou travado. | Aguarde o boot ou reinicie com `emulator -avd <nome> -no-snapshot`. |
@@ -163,12 +157,11 @@ eas build --profile development --platform android
 
 - **Sem backup, exportação ou restauração.** Perder o aparelho, desinstalar o app ou limpar os dados perde tudo. A chave é `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e não migra entre aparelhos.
 - **Sem edição ou exclusão** de lançamentos pela UI, e sem CRUD de categorias (há 7 categorias fixas).
-- **Boleto:** só bancário (47 dígitos). Concessionárias (iniciam em 8) são rejeitadas. Os dígitos verificadores não são validados.
+- **Boleto:** só bancário (47 dígitos). Concessionárias (iniciam em 8) são rejeitadas. Os dígitos verificadores não são validados. O fator de vencimento é ambíguo entre ciclos (reinicia em 1000 após 21/02/2025); o app escolhe a data mais próxima de hoje.
 - **PIX:** heurística de texto (maior valor encontrado, primeira data, linha com "para/destinatário/favorecido"). O usuário confirma antes de salvar.
 - **OFX:** importação sem categoria; deduplicação por `FITID` (ou chave sintética).
 - Chaves estrangeiras: o código não executa `PRAGMA foreign_keys = ON`. Não foi verificado se o `expo-sqlite` já ativa por padrão, então o `ON DELETE CASCADE/SET NULL` não deve ser tomado como garantido.
 - Não há `CHECK` no banco para `amount > 0`; a garantia é só da camada `application`.
-- `@tanstack/react-query` e `zustand` estão declarados, mas não são usados em `src/`. `App.tsx` e `index.ts` são resíduos do template (o `main` é `expo-router/entry`).
 - iOS não testado. O ícone e o splash são placeholders.
 - Interface apenas em português (pt-BR) e moeda fixa em BRL.
 
