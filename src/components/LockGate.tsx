@@ -15,6 +15,8 @@ interface Props {
  */
 export function LockGate({ children }: Props) {
   const [unlocked, setUnlocked] = useState(false);
+  // Nothing (no queries, no data on screen) is mounted before the first unlock.
+  const [everUnlocked, setEverUnlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const appState = useRef(AppState.currentState);
   const prompting = useRef(false);
@@ -27,6 +29,7 @@ export function LockGate({ children }: Props) {
       const outcome = await authenticate();
       if (outcome === 'success' || outcome === 'unavailable') {
         setUnlocked(true);
+        setEverUnlocked(true);
       } else {
         setUnlocked(false);
         setError('Autenticação necessária para acessar seus dados.');
@@ -54,23 +57,42 @@ export function LockGate({ children }: Props) {
     return () => sub.remove();
   }, [runAuth]);
 
-  if (unlocked) return <>{children}</>;
-
+  // After the first unlock, children stay mounted while re-locked: the lock is
+  // an opaque overlay, not an unmount. Unmounting reset navigation to the first tab and dropped any
+  // in-flight work (e.g. returning from the system file picker mid-backup).
+  // Content is hidden from screen readers while locked.
   return (
-    <View style={styles.lock}>
-      <Text style={styles.icon}>🔒</Text>
-      <Text style={styles.title}>appBank bloqueado</Text>
-      {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={styles.button} onPress={runAuth}>
-        <Text style={styles.buttonText}>Desbloquear</Text>
-      </Pressable>
+    <View style={styles.root}>
+      <View
+        style={styles.root}
+        accessibilityElementsHidden={!unlocked}
+        importantForAccessibility={unlocked ? 'auto' : 'no-hide-descendants'}
+        pointerEvents={unlocked ? 'auto' : 'none'}
+      >
+        {everUnlocked && children}
+      </View>
+      {!unlocked && (
+        <View style={styles.lock} accessibilityViewIsModal>
+          <Text style={styles.icon}>🔒</Text>
+          <Text style={styles.title}>appBank bloqueado</Text>
+          {error && <Text style={styles.error}>{error}</Text>}
+          <Pressable style={styles.button} onPress={runAuth} accessibilityRole="button">
+            <Text style={styles.buttonText}>Desbloquear</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   lock: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
