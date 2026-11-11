@@ -3,12 +3,26 @@ import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import '@/webAlert';
 import { LockGate } from '@/components/LockGate';
+import { PwaHead } from '@/components/PwaHead';
 import { db, initSecureDb } from '@/data/db/client';
 import migrations from '@/data/db/migrations/migrations';
 import { seedDefaultCategories } from '@/data/seed';
 
 export default function RootLayout() {
+  return (
+    <View style={styles.page}>
+      <PwaHead />
+      {/* Phone-width column on large screens (web/tablet); no-op on phones. */}
+      <View style={styles.column}>
+        <Root />
+      </View>
+    </View>
+  );
+}
+
+function Root() {
   // Unlock the encrypted DB before anything touches it. Until this resolves,
   // migrations and queries must not run.
   const [dbReady, setDbReady] = useState(false);
@@ -88,6 +102,8 @@ function AppContent() {
 }
 
 const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: '#e5e7eb' },
+  column: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', backgroundColor: '#f9fafb' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   icon: { fontSize: 48 },
   loading: { color: '#6b7280' },

@@ -48,7 +48,7 @@ function header(e: Pick<Envelope, 'format' | 'version' | 'kdf' | 'cipher'>): Uin
   return enc.encode(`${e.format}|${e.version}|${e.kdf.name}|${N}|${r}|${p}|${salt}|${e.cipher}`);
 }
 
-async function deriveKey(passphrase: string, salt: Uint8Array, N: number, r: number, p: number) {
+export async function deriveKey(passphrase: string, salt: Uint8Array, N: number, r: number, p: number) {
   // NFKC: the same typed passphrase gives the same bytes on any keyboard/OS.
   return scryptAsync(enc.encode(passphrase.normalize('NFKC')), salt, {
     N,
