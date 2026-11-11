@@ -28,9 +28,21 @@ check('amount parsed as integer cents 15000', info.amountCents === 15000);
 check('due date is a timestamp', typeof info.dueDate === 'number' && (info.dueDate ?? 0) > 0);
 check('normalized digits length 47', info.digits.length === 47);
 
-// due factor 9999 from base 1997-10-07
+// due factor 9999 from base 1997-10-07 = 2025-02-21 (last day of the first cycle)
 const expectedDue = Date.UTC(1997, 9, 7) + 9999 * 86_400_000;
-check('due date matches factor math', info.dueDate === expectedDue);
+const feb2025 = Date.UTC(2025, 1, 20);
+check('factor 9999 near its date -> 2025-02-21', parseBoleto(line, feb2025).dueDate === Date.UTC(2025, 1, 21));
+check('due date matches factor math', parseBoleto(line, feb2025).dueDate === expectedDue);
+
+// factor wraps: 1000 is 2025-02-22 (first day of the second cycle), not 2000-07-03
+const wrapped = (factor: string) => line.slice(0, 33) + factor + line.slice(37);
+const jul2026 = Date.UTC(2026, 6, 1);
+check('wrapped factor 1000 -> 2025-02-22', parseBoleto(wrapped('1000'), Date.UTC(2025, 2, 1)).dueDate === Date.UTC(2025, 1, 22));
+// 2026-11-11 is factor 1000 + 627 = 1627 in the second cycle
+check('factor 1627 in Nov 2026 -> 2026-11-11', parseBoleto(wrapped('1627'), jul2026).dueDate === Date.UTC(2026, 10, 11));
+// the same factor read in 2002 still resolves to the first cycle
+check('factor 1627 in 2002 -> first cycle', parseBoleto(wrapped('1627'), Date.UTC(2002, 5, 1)).dueDate === Date.UTC(1997, 9, 7) + 1627 * 86_400_000);
+check('factor below 1000 is first cycle', parseBoleto(wrapped('0500')).dueDate === Date.UTC(1997, 9, 7) + 500 * 86_400_000);
 
 // zero amount boleto (no fixed value): last 10 digits all zero
 const noAmount = '34191790010104351004791020150008999990000000000';

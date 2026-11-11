@@ -19,13 +19,28 @@ export interface BoletoInfo {
 // Boletos count days from this base date (FEBRABAN "fator de vencimento").
 const DUE_FACTOR_BASE = Date.UTC(1997, 9, 7); // 1997-10-07
 const MS_PER_DAY = 86_400_000;
+// The factor is 4 digits: after 9999 (2025-02-21) it restarts at 1000, so
+// factors 1000..9999 repeat every 9000 days.
+const FACTOR_CYCLE_DAYS = 9000;
+
+/**
+ * Resolve a due factor to a date. A factor in 1000..9999 is ambiguous between
+ * cycles; pick the date closest to `now` (boletos are paid near their due
+ * date). Factors below 1000 only exist in the first cycle.
+ */
+function dueDateFromFactor(factor: number, now: number): number {
+  const first = DUE_FACTOR_BASE + factor * MS_PER_DAY;
+  if (factor < 1000) return first;
+  const second = first + FACTOR_CYCLE_DAYS * MS_PER_DAY;
+  return Math.abs(second - now) < Math.abs(first - now) ? second : first;
+}
 
 export function isLikelyBoleto(raw: string): boolean {
   const digits = raw.replace(/\D/g, '');
   return digits.length === 47 && digits[0] !== '8';
 }
 
-export function parseBoleto(raw: string): BoletoInfo {
+export function parseBoleto(raw: string, now: number = Date.now()): BoletoInfo {
   const digits = raw.replace(/\D/g, '');
   if (digits.length !== 47) {
     throw new Error('Linha digitável deve ter 47 dígitos (boleto bancário)');
@@ -67,7 +82,7 @@ export function parseBoleto(raw: string): BoletoInfo {
   }
 
   const factor = Number(dueFactor);
-  const dueDate = factor === 0 ? null : DUE_FACTOR_BASE + factor * MS_PER_DAY;
+  const dueDate = factor === 0 ? null : dueDateFromFactor(factor, now);
 
   return { amountCents, dueDate, digits };
 }
