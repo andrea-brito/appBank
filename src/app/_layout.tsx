@@ -5,6 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import '@/webAlert';
 import { LockGate } from '@/components/LockGate';
+import { HeaderCancel } from '@/components/HeaderCancel';
 import { PwaHead } from '@/components/PwaHead';
 import { db, initSecureDb } from '@/data/db/client';
 import migrations from '@/data/db/migrations/migrations';
@@ -91,16 +92,21 @@ function AppContent() {
   return (
     <Stack>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="add" options={{ presentation: 'modal', title: 'Novo lançamento' }} />
-      <Stack.Screen name="goal-new" options={{ presentation: 'modal', title: 'Nova meta' }} />
-      <Stack.Screen name="deposit" options={{ presentation: 'modal', title: 'Guardar na meta' }} />
-      <Stack.Screen name="import" options={{ presentation: 'modal', title: 'Importar boleto / PIX' }} />
-      <Stack.Screen name="achievements" options={{ title: 'Conquistas' }} />
-      <Stack.Screen name="month/[key]" options={{ title: 'Mês' }} />
-      <Stack.Screen name="backup" options={{ presentation: 'modal', title: 'Backup' }} />
+      <Stack.Screen name="add" options={{ ...modal, title: 'Novo lançamento' }} />
+      <Stack.Screen name="goal-new" options={{ ...modal, title: 'Nova meta' }} />
+      <Stack.Screen name="deposit" options={{ ...modal, title: 'Guardar na meta' }} />
+      <Stack.Screen name="import" options={{ ...modal, title: 'Importar boleto / PIX' }} />
+      <Stack.Screen name="achievements" options={{ ...pushed, title: 'Conquistas' }} />
+      <Stack.Screen name="month/[key]" options={{ ...pushed, title: 'Mês' }} />
+      <Stack.Screen name="backup" options={{ ...modal, title: 'Backup' }} />
     </Stack>
   );
 }
+
+// Explicit way out of every non-tab screen: always works, even with no
+// history (web reload, iPhone home-screen app without a back button).
+const modal = { presentation: 'modal' as const, headerLeft: () => <HeaderCancel /> };
+const pushed = { headerLeft: () => <HeaderCancel label="‹ Voltar" /> };
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#e5e7eb' },
