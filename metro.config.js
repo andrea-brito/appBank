@@ -25,9 +25,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 };
 
 // SharedArrayBuffer (needed by expo-sqlite on web) requires cross-origin isolation.
+// require-corp, not credentialless: Safari/iOS does not support credentialless and
+// leaves the page non-isolated (no SharedArrayBuffer -> every DB query fails).
 // In production these headers come from vercel.json.
 config.server.enhanceMiddleware = (middleware) => (req, res, next) => {
-  res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   middleware(req, res, next);
 };

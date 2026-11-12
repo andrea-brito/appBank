@@ -75,7 +75,9 @@ function AppContent() {
   if (error) {
     return (
       <View style={styles.center}>
-        <Text style={styles.error}>Erro ao preparar o banco: {error.message}</Text>
+        <Text style={styles.error}>
+          Erro ao preparar o banco: {error.cause instanceof Error ? error.cause.message : error.message}
+        </Text>
       </View>
     );
   }
