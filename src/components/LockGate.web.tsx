@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { PasswordInput } from '@/components/PasswordInput';
 import {
   lastEmail,
   recoverAccount,
@@ -230,14 +231,11 @@ export function LockGate({ children }: { children: React.ReactNode }) {
               />
             )}
             {(relock || screen === 'signin' || screen === 'signup' || screen === 'recover') && (
-              <TextInput
+              <PasswordInput
                 style={styles.input}
                 value={pass}
                 onChangeText={setPass}
                 placeholder={screen === 'recover' && !relock ? 'Nova senha' : 'Senha'}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
                 autoComplete={choosingPass ? 'new-password' : 'current-password'}
                 editable={!busy}
                 onSubmitEditing={submit}
@@ -245,14 +243,11 @@ export function LockGate({ children }: { children: React.ReactNode }) {
               />
             )}
             {choosingPass && (
-              <TextInput
+              <PasswordInput
                 style={styles.input}
                 value={pass2}
                 onChangeText={setPass2}
                 placeholder="Repita a senha"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
                 autoComplete="new-password"
                 editable={!busy}
                 onSubmitEditing={submit}

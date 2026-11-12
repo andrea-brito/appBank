@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { createBackup, MIN_PASSPHRASE_LENGTH, restoreBackup } from '@/application/backup';
+import { PasswordInput } from '@/components/PasswordInput';
 import { pickBackupFile, saveBackupFile } from '@/data/backupFile';
 
 type Busy = null | 'export' | 'restore';
@@ -73,23 +74,19 @@ export default function BackupScreen() {
 
       <Text style={styles.section}>Criar backup</Text>
       <Text style={styles.label}>Senha do backup (mínimo {MIN_PASSPHRASE_LENGTH} caracteres)</Text>
-      <TextInput
+      <PasswordInput
         style={styles.input}
         value={exportPass}
         onChangeText={setExportPass}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
+        accessibilityLabel="Senha do backup"
         editable={!working}
       />
       <Text style={styles.label}>Repita a senha</Text>
-      <TextInput
+      <PasswordInput
         style={styles.input}
         value={exportPass2}
         onChangeText={setExportPass2}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
+        accessibilityLabel="Repita a senha"
         editable={!working}
       />
       <Pressable style={[styles.button, working && styles.disabled]} onPress={handleExport} disabled={working}>
@@ -101,13 +98,11 @@ export default function BackupScreen() {
         Os dados do backup são somados aos atuais. Nada é apagado e restaurar duas vezes não duplica.
       </Text>
       <Text style={styles.label}>Senha do backup</Text>
-      <TextInput
+      <PasswordInput
         style={styles.input}
         value={restorePass}
         onChangeText={setRestorePass}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
+        accessibilityLabel="Senha do backup para restaurar"
         editable={!working}
       />
       <Pressable
