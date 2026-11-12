@@ -1,7 +1,8 @@
+import { addMonths } from 'date-fns';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useMemo } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { db, schema } from '@/data/db/client';
@@ -11,15 +12,22 @@ import { formatBRL, sumCents } from '@/domain/money';
 import { currentMonth } from '@/domain/period';
 
 export default function Dashboard() {
-  const { data: txns } = useLiveQuery(recentTransactionsQuery(100));
-  // Separate full-table query so budget alerts count every expense this month,
+  const period = useMemo(() => currentMonth(), []);
+  const nextPeriod = useMemo(() => currentMonth(addMonths(new Date(), 1)), []);
+  const { data: txns } = useLiveQuery(recentTransactionsQuery(100, period.to), [period.to]);
+  // Full-table query: month totals and budget alerts must count every entry,
   // not just the 100 shown in the recent list.
   const { data: allTxns } = useLiveQuery(db.select().from(schema.transactions));
   const { data: categories } = useLiveQuery(categoriesQuery());
-  const period = useMemo(() => currentMonth(), []);
 
-  const monthTxns = (txns ?? []).filter(
+  const monthTxns = (allTxns ?? []).filter(
     (t) => t.occurredAt >= period.from && t.occurredAt <= period.to,
+  );
+  // Installments already scheduled for next month.
+  const committedNextCents = sumCents(
+    (allTxns ?? [])
+      .filter((t) => t.kind === 'expense' && t.occurredAt >= nextPeriod.from && t.occurredAt <= nextPeriod.to)
+      .map((t) => t.amountCents),
   );
   const expenseCents = sumCents(
     monthTxns.filter((t) => t.kind === 'expense').map((t) => t.amountCents),
@@ -52,11 +60,14 @@ export default function Dashboard() {
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>Este mês</Text>
-          <Link href="/backup" asChild>
-            <Pressable accessibilityRole="button" accessibilityLabel="Backup" hitSlop={12}>
-              <Text style={styles.backupIcon}>💾</Text>
-            </Pressable>
-          </Link>
+          {/* Web saves to the server automatically; backup lives at the end of Histórico there. */}
+          {Platform.OS !== 'web' && (
+            <Link href="/backup" asChild>
+              <Pressable accessibilityRole="button" accessibilityLabel="Backup" hitSlop={12}>
+                <Text style={styles.backupIcon}>💾</Text>
+              </Pressable>
+            </Link>
+          )}
         </View>
         <View style={styles.cards}>
           <Stat label="Entradas" value={formatBRL(incomeCents)} color="#22c55e" />
@@ -68,6 +79,17 @@ export default function Dashboard() {
             {formatBRL(balanceCents)}
           </Text>
         </View>
+
+        {committedNextCents > 0 && (
+          <Link href="/history" asChild>
+            <Pressable style={styles.committed} accessibilityRole="link">
+              <Text style={styles.committedText}>
+                💳 Mês que vem você já tem <Text style={styles.committedValue}>{formatBRL(committedNextCents)}</Text>{' '}
+                comprometidos. Ver histórico ›
+              </Text>
+            </Pressable>
+          </Link>
+        )}
 
         {alerts.map(({ category, status }) => (
           <View
@@ -94,7 +116,12 @@ export default function Dashboard() {
           <Text style={styles.empty}>Nenhum lançamento ainda. Toque em + para começar.</Text>
         }
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <Pressable
+            style={styles.row}
+            onPress={() => router.push({ pathname: '/add', params: { id: item.id } })}
+            accessibilityRole="button"
+            accessibilityLabel={`Editar ${item.description || 'lançamento'}, ${formatBRL(item.amountCents)}`}
+          >
             <Text style={styles.rowDesc} numberOfLines={1}>
               {item.description || 'Sem descrição'}
             </Text>
@@ -102,7 +129,7 @@ export default function Dashboard() {
               {item.kind === 'income' ? '+' : '-'}
               {formatBRL(item.amountCents)}
             </Text>
-          </View>
+          </Pressable>
         )}
       />
 
@@ -143,6 +170,9 @@ const styles = StyleSheet.create({
   balanceCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 4 },
   balanceLabel: { color: '#6b7280', fontSize: 13 },
   balanceValue: { fontSize: 26, fontWeight: '800' },
+  committed: { backgroundColor: '#eef2ff', borderRadius: 10, padding: 12 },
+  committedText: { color: '#3730a3', fontSize: 13, fontWeight: '600' },
+  committedValue: { fontWeight: '800' },
   alert: { borderRadius: 10, padding: 12 },
   alertWarning: { backgroundColor: '#fef3c7' },
   alertOver: { backgroundColor: '#fee2e2' },

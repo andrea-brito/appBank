@@ -96,6 +96,7 @@ function AppContent() {
       <Stack.Screen name="deposit" options={{ presentation: 'modal', title: 'Guardar na meta' }} />
       <Stack.Screen name="import" options={{ presentation: 'modal', title: 'Importar boleto / PIX' }} />
       <Stack.Screen name="achievements" options={{ title: 'Conquistas' }} />
+      <Stack.Screen name="month/[key]" options={{ title: 'Mês' }} />
       <Stack.Screen name="backup" options={{ presentation: 'modal', title: 'Backup' }} />
     </Stack>
   );

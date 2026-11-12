@@ -19,6 +19,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="history"
+        options={{
+          title: 'Histórico',
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18, lineHeight: 20 }}>📅</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="budgets"
         options={{
           title: 'Orçamento',
