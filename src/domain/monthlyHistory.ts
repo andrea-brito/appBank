@@ -10,7 +10,10 @@ export interface MonthSummary {
   from: number; // epoch ms, start of month (local time)
   incomeCents: Cents;
   expenseCents: Cents;
-  /** income - expense: what was left over this month. */
+  /**
+   * Available: income - expense - saved. Money moved into a goal is no longer
+   * free to spend (a withdrawal, negative saved, gives it back).
+   */
   balanceCents: Cents;
   /** Net deposits into goals (withdrawals subtract). */
   savedCents: Cents;
@@ -45,6 +48,11 @@ interface Tx {
 interface Deposit {
   amountCents: Cents;
   occurredAt: number;
+}
+
+/** What is free to spend: what came in, minus spending, minus what went to goals. */
+export function availableCents(incomeCents: Cents, expenseCents: Cents, savedCents: Cents): Cents {
+  return incomeCents - expenseCents - savedCents;
 }
 
 const keyOf = (ms: number) => format(ms, 'yyyy-MM');
@@ -86,7 +94,7 @@ export function buildMonthlyHistory(
     else m.expenseCents += t.amountCents;
   }
   for (const d of deposits) at(d.occurredAt).savedCents += d.amountCents;
-  for (const m of months.values()) m.balanceCents = m.incomeCents - m.expenseCents;
+  for (const m of months.values()) m.balanceCents = availableCents(m.incomeCents, m.expenseCents, m.savedCents);
 
   // Past: fill every month from the oldest entry up to now.
   const oldest = Math.min(current.getTime(), ...[...months.values()].map((m) => m.from));
@@ -122,7 +130,7 @@ export function buildYearlyHistory(past: readonly MonthSummary[]): YearSummary[]
         year,
         incomeCents,
         expenseCents,
-        balanceCents: incomeCents - expenseCents,
+        balanceCents: sum((m) => m.balanceCents),
         savedCents: sum((m) => m.savedCents),
         avgExpenseCents: Math.round(expenseCents / months.length),
         months,

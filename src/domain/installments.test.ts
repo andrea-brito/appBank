@@ -11,7 +11,7 @@ import {
   parseInstallment,
   splitInstallments,
 } from './installments';
-import { buildMonthlyHistory, buildYearlyHistory, monthRange, spendByCategory } from './monthlyHistory';
+import { availableCents, buildMonthlyHistory, buildYearlyHistory, monthRange, spendByCategory } from './monthlyHistory';
 
 let failures = 0;
 function check(label: string, cond: boolean) {
@@ -69,7 +69,10 @@ const h = buildMonthlyHistory(
 );
 check('past newest first, no gaps (Nov..Aug = 4 months)', h.past.map((m) => m.key).join() === '2026-11,2026-10,2026-09,2026-08');
 const nov = h.past[0];
-check('Nov totals', nov.incomeCents === 500000 && nov.expenseCents === 120000 && nov.balanceCents === 380000);
+// available = 5.000 in - 1.200 spent - 150 net into goals (200 saved, 50 withdrawn)
+check('Nov totals, available discounts goals', nov.incomeCents === 500000 && nov.expenseCents === 120000 && nov.balanceCents === 365000);
+check('her case: 5.000 in, 3.000 spent, 1.000 saved -> 1.000 free', availableCents(500000, 300000, 100000) === 100000);
+check('withdrawal from a goal gives money back', availableCents(500000, 300000, -20000) === 220000);
 check('Nov saved is net of withdrawal', nov.savedCents === 15000);
 check('empty month is zero', h.past[1].expenseCents === 0 && h.past[1].balanceCents === 0);
 check('Aug negative balance', h.past[3].balanceCents === -30000);
@@ -106,7 +109,7 @@ const years = buildYearlyHistory(h2.past);
 check('years newest first', years.map((y) => y.year).join() === '2026,2025');
 const y26 = years[0];
 check('2026 months Jan..Nov present (gap-filled)', y26.months.length === 11 && y26.months[0].key === '2026-11');
-check('2026 totals', y26.incomeCents === 100000 && y26.expenseCents === 60000 && y26.balanceCents === 40000 && y26.savedCents === 10000);
+check('2026 totals, available discounts goals', y26.incomeCents === 100000 && y26.expenseCents === 60000 && y26.balanceCents === 30000 && y26.savedCents === 10000);
 check('2026 avg expense over 11 months, integer', y26.avgExpenseCents === Math.round(60000 / 11));
 check('best/worst month', y26.best.key === '2026-11' && y26.worst.key === '2026-10');
 check('2025 has only December', years[1].months.map((m) => m.key).join() === '2025-12');

@@ -3,14 +3,15 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Link, router } from 'expo-router';
 import { useMemo } from 'react';
 import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-
-import { canSignOut, signOut } from '@/data/session';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { db, schema } from '@/data/db/client';
+import { allDepositsQuery } from '@/data/goalRepository';
+import { canSignOut, signOut } from '@/data/session';
 import { categoriesQuery, recentTransactionsQuery } from '@/data/transactionRepository';
 import { budgetStatus } from '@/domain/budgetStatus';
 import { formatBRL, sumCents } from '@/domain/money';
+import { availableCents } from '@/domain/monthlyHistory';
 import { currentMonth } from '@/domain/period';
 
 function confirmSignOut() {
@@ -34,6 +35,7 @@ export default function Dashboard() {
   // not just the 100 shown in the recent list.
   const { data: allTxns } = useLiveQuery(db.select().from(schema.transactions));
   const { data: categories } = useLiveQuery(categoriesQuery());
+  const { data: deposits } = useLiveQuery(allDepositsQuery());
 
   const monthTxns = (allTxns ?? []).filter(
     (t) => t.occurredAt >= period.from && t.occurredAt <= period.to,
@@ -50,7 +52,11 @@ export default function Dashboard() {
   const incomeCents = sumCents(
     monthTxns.filter((t) => t.kind === 'income').map((t) => t.amountCents),
   );
-  const balanceCents = incomeCents - expenseCents;
+  // Net moved into goals this month (withdrawals are negative): not free to spend.
+  const savedCents = sumCents(
+    (deposits ?? []).filter((d) => d.occurredAt >= period.from && d.occurredAt <= period.to).map((d) => d.amountCents),
+  );
+  const balanceCents = availableCents(incomeCents, expenseCents, savedCents);
 
   // Budget alerts: categories at warning (>=70%) or over (>100%) this month.
   const alerts = useMemo(() => {
@@ -94,10 +100,17 @@ export default function Dashboard() {
           <Stat label="Saídas" value={formatBRL(expenseCents)} color="#ef4444" />
         </View>
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Saldo</Text>
+          <Text style={styles.balanceLabel}>Disponível para gastar</Text>
           <Text style={[styles.balanceValue, { color: balanceCents >= 0 ? '#22c55e' : '#ef4444' }]}>
             {formatBRL(balanceCents)}
           </Text>
+          {savedCents !== 0 && (
+            <Text style={styles.savedNote}>
+              {savedCents > 0
+                ? `🐷 ${formatBRL(savedCents)} já foram para as metas este mês`
+                : `🐷 ${formatBRL(-savedCents)} voltaram das metas este mês`}
+            </Text>
+          )}
         </View>
 
         {committedNextCents > 0 && (
@@ -191,6 +204,7 @@ const styles = StyleSheet.create({
   balanceCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 4 },
   balanceLabel: { color: '#6b7280', fontSize: 13 },
   balanceValue: { fontSize: 26, fontWeight: '800' },
+  savedNote: { color: '#4338ca', fontSize: 13, fontWeight: '600', marginTop: 2 },
   committed: { backgroundColor: '#eef2ff', borderRadius: 10, padding: 12 },
   committedText: { color: '#3730a3', fontSize: 13, fontWeight: '600' },
   committedValue: { fontWeight: '800' },

@@ -119,8 +119,8 @@ function MonthCard({ month: m, current }: { month: MonthSummary; current: boolea
       {rate != null && (
         <Text style={[styles.rate, { color: positive ? '#166534' : '#991b1b' }]}>
           {positive
-            ? `Você ficou com ${rate}% do que entrou.`
-            : `Você gastou ${-rate}% a mais do que entrou.`}
+            ? `Ficou livre ${rate}% do que entrou, já descontando o que foi para as metas.`
+            : `Gastos + metas passaram ${-rate}% do que entrou.`}
         </Text>
       )}
     </Pressable>
