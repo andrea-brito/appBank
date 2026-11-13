@@ -48,6 +48,9 @@ export const goals = sqliteTable(
     startAt: integer('start_at').notNull(), // epoch ms
     endAt: integer('end_at'), // epoch ms, null = no deadline
     archivedAt: integer('archived_at'), // null = active
+    // What the money is saved for. Amounts stay in BRL cents; EUR/USD only
+    // changes how the goal shows "how much foreign currency this buys today".
+    currency: text('currency', { enum: ['BRL', 'EUR', 'USD'] }).notNull().default('BRL'),
     createdAt: integer('created_at')
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

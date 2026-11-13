@@ -17,9 +17,16 @@ import { goBack } from '@/components/HeaderCancel';
 import { deleteGoal, getGoal } from '@/data/goalRepository';
 import { CATEGORY_COLORS, GOAL_ICONS } from '@/domain/category';
 import { centsToInput, formatDateBR, maskDateInput, parseDateBR } from '@/domain/dates';
+import type { GoalCurrency } from '@/domain/fx';
 import { parseGoalPeriod } from '@/domain/goal';
 import { maskCurrencyInput } from '@/domain/money';
 import { TEXT_MAX } from '@/domain/types';
+
+const CURRENCIES: { value: GoalCurrency; label: string }[] = [
+  { value: 'BRL', label: '🇧🇷 Reais' },
+  { value: 'EUR', label: '🇪🇺 Euros' },
+  { value: 'USD', label: '🇺🇸 Dólares' },
+];
 
 // Presets fill the end date from the start date; the field stays editable.
 const DEADLINES: { label: string; months: number | null }[] = [
@@ -39,6 +46,7 @@ export default function GoalFormScreen() {
   const [targetText, setTargetText] = useState('');
   const [icon, setIcon] = useState('🎯');
   const [color, setColor] = useState('#6366f1');
+  const [currency, setCurrency] = useState<GoalCurrency>('BRL');
   const [startText, setStartText] = useState(() => formatDateBR(Date.now()));
   const [endText, setEndText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -59,6 +67,7 @@ export default function GoalFormScreen() {
         setTargetText(centsToInput(g.targetCents));
         setIcon(g.icon);
         setColor(g.color);
+        setCurrency(g.currency);
         setStartText(formatDateBR(g.startAt));
         setEndText(g.endAt != null ? formatDateBR(g.endAt) : '');
         setLoaded(true);
@@ -91,7 +100,7 @@ export default function GoalFormScreen() {
     setSaving(true);
     try {
       const { startAt, endAt } = parseGoalPeriod(startText, endText);
-      const input = { name, targetText, icon, color, startAt, endAt };
+      const input = { name, targetText, icon, color, currency, startAt, endAt };
       if (editingId) await updateGoalUseCase(editingId, input);
       else await createGoalUseCase(input);
       goBack('/goals'); // always leaves the form, even after a reload
@@ -162,6 +171,27 @@ export default function GoalFormScreen() {
         keyboardType="number-pad"
         accessibilityLabel="Valor-alvo"
       />
+
+      <Text style={styles.label}>Juntando para comprar</Text>
+      <View style={styles.wrap} role="radiogroup">
+        {CURRENCIES.map((c) => (
+          <Pressable
+            key={c.value}
+            onPress={() => setCurrency(c.value)}
+            style={[styles.deadlineChip, currency === c.value && styles.deadlineChipActive]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: currency === c.value }}
+          >
+            <Text style={[styles.deadlineText, currency === c.value && styles.deadlineTextActive]}>{c.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {currency !== 'BRL' && (
+        <Text style={styles.small}>
+          O valor continua em reais. A meta mostra quanto em {currency === 'EUR' ? 'euros' : 'dólares'} o que você
+          guardou compra hoje, pela cotação turismo.
+        </Text>
+      )}
 
       <Text style={styles.label}>Ícone</Text>
       <View style={styles.wrap}>

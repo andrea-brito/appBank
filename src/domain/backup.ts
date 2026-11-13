@@ -6,7 +6,9 @@ import { z } from 'zod';
  * so every field is checked and references between tables must resolve.
  *
  * Mirrors the tables in data/db/schema.ts. If a column is added there, add it
- * here and bump BACKUP_VERSION (backup.test.ts guards the round-trip).
+ * here (backup.test.ts guards the round-trip). New columns should be optional
+ * with a default so older files keep restoring; bump BACKUP_VERSION only for
+ * changes old files can't satisfy.
  */
 
 export const BACKUP_FORMAT = 'appbank-backup';
@@ -48,6 +50,9 @@ const goal = z.object({
   endAt: int.nullable(),
   archivedAt: int.nullable(),
   createdAt: int,
+  // Added after v1 shipped: optional with a default, so older backup files
+  // (without it) still restore. No version bump needed for additive fields.
+  currency: z.enum(['BRL', 'EUR', 'USD']).default('BRL'),
 });
 
 const goalDeposit = z.object({

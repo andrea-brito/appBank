@@ -10,6 +10,7 @@ const createGoalSchema = z.object({
   targetText: z.string().min(1, 'Informe o valor-alvo'),
   icon: z.string().trim().refine(isSingleEmoji, 'Escolha um emoji para o ícone.').default('🎯'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida.').default('#6366f1'),
+  currency: z.enum(['BRL', 'EUR', 'USD']).default('BRL'),
   startAt: z.number().int().positive().default(() => Date.now()),
   endAt: z.number().int().positive().nullable().default(null),
 });
@@ -30,6 +31,7 @@ function validGoal(input: CreateGoalInput) {
     name: parsed.name,
     icon: parsed.icon,
     color: parsed.color.toLowerCase(),
+    currency: parsed.currency,
     targetCents,
     startAt: parsed.startAt,
     endAt: parsed.endAt,

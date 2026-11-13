@@ -1,5 +1,6 @@
 import { desc, eq, isNull, sql } from 'drizzle-orm';
 
+import type { GoalCurrency } from '@/domain/fx';
 import type { Cents } from '@/domain/money';
 
 import { db, schema } from './db/client';
@@ -12,6 +13,7 @@ export interface NewGoalInput {
   name: string;
   icon?: string;
   color?: string;
+  currency?: GoalCurrency;
   targetCents: Cents;
   startAt: number;
   endAt: number | null;
@@ -24,6 +26,7 @@ export async function createGoal(input: NewGoalInput): Promise<string> {
     name: input.name,
     icon: input.icon ?? '🎯',
     color: input.color ?? '#6366f1',
+    currency: input.currency ?? 'BRL',
     targetCents: input.targetCents,
     startAt: input.startAt,
     endAt: input.endAt,
@@ -44,6 +47,7 @@ export async function updateGoal(id: string, input: NewGoalInput): Promise<void>
       name: input.name,
       icon: input.icon ?? '🎯',
       color: input.color ?? '#6366f1',
+      currency: input.currency ?? 'BRL',
       targetCents: input.targetCents,
       startAt: input.startAt,
       endAt: input.endAt,

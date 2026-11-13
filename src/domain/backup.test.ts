@@ -33,7 +33,7 @@ const data: BackupSnapshot = {
     },
   ],
   goals: [
-    { id: 'g1', name: 'Viagem', icon: '✈️', color: '#6366f1', targetCents: 500000, startAt: 1, endAt: null, archivedAt: null, createdAt: 1 },
+    { id: 'g1', name: 'Viagem', icon: '✈️', color: '#6366f1', targetCents: 500000, startAt: 1, endAt: null, archivedAt: null, createdAt: 1, currency: 'EUR' },
   ],
   goalDeposits: [
     { id: 'd1', goalId: 'g1', amountCents: 10000, occurredAt: 2, createdAt: 2 },
@@ -49,6 +49,12 @@ check('exportedAt kept', back.exportedAt === 123);
 const counts = countRows(back.data);
 check('counts', counts.categories === 1 && counts.transactions === 2 && counts.goals === 1 && counts.goalDeposits === 2);
 check('negative deposit (withdrawal) allowed', back.data.goalDeposits[1].amountCents === -2500);
+
+// Files made before goals had a currency still restore, as BRL.
+const old = JSON.parse(text);
+delete old.data.goals[0].currency;
+check('old backup without currency restores as BRL', parseBackup(JSON.stringify(old)).data.goals[0].currency === 'BRL');
+check('unknown currency rejected', throwsWith(() => parseBackup(JSON.stringify({ ...old, data: { ...old.data, goals: [{ ...old.data.goals[0], currency: 'BTC' }] } }))) != null);
 
 // Corrupted / wrong input.
 check('not json -> clear message', (throwsWith(() => parseBackup('xxx')) ?? '').includes('corrompido'));
