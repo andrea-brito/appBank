@@ -4,9 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const files = readdirSync('src', { recursive: true })
-  .filter((f) => f.endsWith('.test.ts'))
-  .map((f) => join('src', f))
+// src/ (app) and supabase/functions/ (Edge Function pure logic).
+const files = ['src', join('supabase', 'functions')]
+  .flatMap((dir) =>
+    readdirSync(dir, { recursive: true })
+      .filter((f) => f.endsWith('.test.ts'))
+      .map((f) => join(dir, f)),
+  )
   .sort();
 
 let failed = 0;

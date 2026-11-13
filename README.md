@@ -38,6 +38,7 @@ Os dados são cifrados **no navegador** antes de ir para o servidor (Supabase). 
 | **Orçamento** | Limite mensal por categoria, com alerta em 70% e acima de 100%. |
 | **Metas** | Valor-alvo, início e fim (ou sem prazo), emoji e cor. Depósitos e retiradas, valor mensal sugerido, editar, arquivar e excluir. |
 | **Histórico** | Visão por **mês** e por **ano**: entradas, saídas, quanto sobrou, quanto foi para metas, média de gasto, melhor e pior mês. Detalhe do mês com gastos por categoria e todos os lançamentos. Bloco **"Já comprometido"** com as parcelas futuras. |
+| **Câmbio** | Cotação de euro e dólar (comercial e turismo, AwesomeAPI) e média de 30 dias. **Alerta por e-mail** quando a cotação escolhida chega ao seu preço-alvo, verificado a cada 30 min nos dias úteis das 9h às 18h, mesmo com o app fechado. Banner no Resumo. Metas podem ser "em euros/dólares" e mostram quanto o valor guardado compra hoje. |
 | **Importação** | Boleto bancário (linha digitável de 47 dígitos), texto de comprovante PIX e arquivo OFX. |
 | **Backup** | Arquivo cifrado com uma senha própria, no fim da aba Histórico. Serve para desfazer um erro ou como última saída se perder senha e chave de recuperação. |
 | **Campos** | Valor e data com máscara enquanto digita (teclado numérico no celular). Textos limitados a 250 caracteres. |
@@ -103,6 +104,22 @@ Uma vez, num projeto novo (plano gratuito basta):
 5. **Depois de criar a sua conta:** desligue **"Allow new users to sign up"**. Assim ninguém mais cria conta no seu projeto.
 
 > A publishable/anon key é feita para ficar no navegador. Quem protege os dados são a RLS e a criptografia. **Nunca** use a `secret`/`service_role` no app.
+
+## Alerta de câmbio por e-mail
+
+O alerta precisa de três peças no servidor, além do app:
+
+1. **Tabela:** rode [`supabase/rate_alerts.sql`](supabase/rate_alerts.sql) no SQL Editor.
+2. **Função `rate-alert`** ([`supabase/functions/rate-alert/`](supabase/functions/rate-alert/index.ts)), publicada com o Supabase CLI:
+   ```powershell
+   npx supabase login
+   npx supabase functions deploy rate-alert --project-ref SEU-PROJETO --no-verify-jwt --use-api
+   npx supabase secrets set --project-ref SEU-PROJETO CRON_SECRET=<aleatório longo> APP_URL=https://SEU-SITE RESEND_API_KEY=re_...
+   ```
+   O e-mail sai pelo [Resend](https://resend.com). Sem domínio próprio, ele só envia para o e-mail da sua conta no Resend, que deve ser o mesmo do login do appBank.
+3. **Agendamento:** em Database → Extensions, ative `pg_cron` e `pg_net`. Depois rode [`supabase/rate_alerts_cron.sql`](supabase/rate_alerts_cron.sql), trocando o `COLE_AQUI_O_CRON_SECRET` pelo mesmo `CRON_SECRET`.
+
+Para testar fora do horário de mercado, faça um `POST .../functions/v1/rate-alert?force=1` com o cabeçalho `x-cron-secret`. Sem o segredo, a função responde 401.
 
 ## Publicar na Vercel
 
@@ -210,6 +227,7 @@ Sugestão: exporte uma vez por mês. O formato está em [`docs/ARCHITECTURE.md`]
 - **Dois aparelhos editando ao mesmo tempo:** o segundo a salvar recebe um aviso de conflito e não sobrescreve. Não há mesclagem automática.
 - **Supabase gratuito pausa** após cerca de 7 dias sem acesso. Os dados não se perdem: reative no painel.
 - **Envio de e-mail do Supabase** (plano gratuito) só entrega para membros da organização e com limite por hora. Basta para recuperar a própria conta.
+- **Cotações** vêm da AwesomeAPI (serviço privado e gratuito). São valores de referência: confira o preço final na casa de câmbio. Se a API sair do ar, o app mostra "cotação indisponível" e a função não envia nada.
 - **Lançamentos futuros/recorrentes** não existem como funcionalidade própria. Hoje dá para lançar com data futura e usar parcelas.
 - **Boleto:** só bancário (47 dígitos), sem validar dígitos verificadores. **PIX:** heurística com confirmação. **OFX:** importa sem categoria.
 - Interface só em pt-BR e moeda fixa em BRL.

@@ -110,6 +110,20 @@ Qualquer um com a URL baixa o app e vê a tela de login. O código não tem segr
 - **CI fora do ar:** o workflow existe só localmente (token sem escopo `workflow`). Testes que não rodam sozinhos deixam passar regressões, inclusive de segurança.
 - **Dependências:** as 5 vulnerabilidades moderadas são de ferramentas de build. Revisar ao atualizar o Expo SDK. Versões das bibliotecas de criptografia e do `supabase-js` estão fixadas.
 
+### 10. Alerta de câmbio (adicionado em 13/11/2026)
+
+O que foi decidido e verificado (função testada localmente no Deno contra um Supabase e um Resend simulados, com a cotação real):
+
+- **`rate_alerts` fora da criptografia de ponta a ponta.** Guarda só a cotação escolhida, o alvo e os controles. A função precisa ler isso no servidor. O e-mail de destino vem do Auth, não da tabela.
+- **Permissões por coluna:** o app não consegue forjar `last_notified_at`, `last_rate` nem `last_checked_at`.
+- **Função pública sem JWT, protegida por segredo:** sem o `x-cron-secret` correto, responde **401** antes de ler qualquer dado (verificado). O segredo fica no Vault, não no `cron.job`.
+- **Service role** só existe dentro da função (variável da plataforma). Nunca vai para o app nem para o repositório.
+- **Sem dados pessoais nos logs:** verificado que o endereço de e-mail não aparece.
+- **Abuso de e-mail limitado:** no máximo 1 e-mail a cada 20 horas por usuária. Com o cadastro desligado (item 1), só a sua conta existe.
+- **CSP:** `connect-src` liberado só para `https://economia.awesomeapi.com.br`, além do site e do Supabase.
+
+Risco residual: a AwesomeAPI é um serviço de terceiros. Uma cotação errada vinda dela geraria um aviso errado, e o e-mail lembra de conferir o valor antes de comprar. Ela não recebe nenhum dado seu.
+
 ## Boas práticas para você
 
 - Guarde a **chave de recuperação** num gerenciador de senhas ou impressa. Evite deixá-la na área de transferência ou num print na galeria.

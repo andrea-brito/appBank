@@ -314,6 +314,25 @@ Exportação lógica das tabelas (`readSnapshot`) em JSON, cifrada com uma senha
 
 Na web, o arquivo é entregue pela folha de compartilhar (`navigator.share`) ou como download (`backupFile.web.ts`), e lido com `<input type="file">`. Ao mudar o schema, toda coluna nova precisa entrar em `domain/backup.ts`, com aumento de `BACKUP_VERSION`.
 
+## 15b. Câmbio e alerta por e-mail
+
+```mermaid
+flowchart LR
+  CRON["pg_cron (30 min, dias úteis 9h-18h BRT)"] -->|"POST + x-cron-secret"| FN["Edge Function rate-alert"]
+  FN -->|"cotações"| AW["AwesomeAPI"]
+  FN -->|"service role"| RA[("rate_alerts")]
+  FN -->|"e-mail"| RS["Resend"]
+  APP["app: tela Câmbio"] -->|"RLS: própria linha"| RA
+  APP -->|"cotação, média 30 dias"| AW
+```
+
+- **Fonte:** AwesomeAPI, e não a PTAX do Banco Central. Ela tem a cotação **turismo** (o que se paga de fato) e atualização quase em tempo real, enquanto a PTAX tem 4 boletins oficiais por dia, só comerciais. A resposta é validada com `zod` (`data/quotes.ts`), com cache de 5 minutos.
+- **Taxas** são inteiros em 1/10000 de real (`domain/fx.ts`, `Rate4`): `"6.2420"` vira `62420`, convertido pelo texto. A conversão de reais para euros arredonda para baixo, para nunca prometer mais do que se compra.
+- **Decisão** (`functions/rate-alert/decide.ts`, puro e testado): avisa quando `cotação ≤ alvo` **e** a consulta anterior estava acima, ou seja, um e-mail por cruzamento. Mínimo de 20 horas entre e-mails. Mudar o alvo ou a cotação rearma o alerta.
+- **Tabela `rate_alerts`** (uma linha por usuário): RLS na própria linha. O app só pode gravar `pair`, `target_cents`, `enabled` e `was_below`. `last_rate`, `last_checked_at` e `last_notified_at` só a função grava, com a service role. **Não é cifrada de ponta a ponta**: a função precisa ler o alvo. Ela não contém dados financeiros da usuária.
+- **Função:** publicada sem verificação de JWT, porque quem chama é o cron. Toda chamada exige o segredo `CRON_SECRET`, comparado em tempo constante, e qualquer outra recebe 401. O segredo fica no Vault do Postgres, não no texto do job. A função não registra e-mails nos logs.
+- **Moeda da meta:** coluna `goals.currency` (`BRL` | `EUR` | `USD`, padrão `BRL`; migration `0001`). Os valores continuam em reais. No backup o campo é opcional com padrão, então arquivos antigos continuam restaurando.
+
 ## 16. Dívida técnica e riscos
 
 1. **Senha a cada recarga.** Próximo passo planejado: Face ID via passkey (WebAuthn PRF), com PIN por aparelho como reserva.

@@ -7,5 +7,5 @@
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules", "node_modules_old", "android", "android_old"]
+  "exclude": ["node_modules", "node_modules_old", "android", "android_old", "supabase/functions/*/index.ts"]
 }
