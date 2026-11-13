@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSavingsSuggestion } from '@/application/savingsInsight';
 import { ProgressBar } from '@/components/ProgressBar';
 import { activeGoalsQuery, allDepositsQuery, savedPerGoalQuery } from '@/data/goalRepository';
+import { useQuotes } from '@/components/useQuotes';
 import { formatDateBR } from '@/domain/dates';
+import { brlToForeignCents, BUY_PAIR, formatForeign, formatRate } from '@/domain/fx';
 import { goalProgress } from '@/domain/goal';
 import { goalAlerts } from '@/domain/goalAlert';
 import { formatBRL } from '@/domain/money';
@@ -19,6 +21,7 @@ export default function GoalsScreen() {
   const { data: saved } = useLiveQuery(savedPerGoalQuery());
   const { data: deposits } = useLiveQuery(allDepositsQuery());
   const period = useMemo(() => currentMonth(), []);
+  const quotes = useQuotes();
 
   const savedMap = useMemo(() => {
     const m = new Map<string, number>();
@@ -106,6 +109,16 @@ export default function GoalsScreen() {
                     faltam {formatBRL(progress.remainingCents)}
                   </Text>
                 </View>
+                {g.currency !== 'BRL' && (
+                  <Text style={styles.goalFx}>
+                    {quotes
+                      ? `${g.currency === 'EUR' ? '💶' : '💵'} Hoje compra ≈ ${formatForeign(
+                          brlToForeignCents(progress.savedCents, quotes[BUY_PAIR[g.currency]].ask),
+                          g.currency,
+                        )} (turismo ${formatRate(quotes[BUY_PAIR[g.currency]].ask)})`
+                      : 'Cotação indisponível agora.'}
+                  </Text>
+                )}
                 {progress.monthlyTargetCents != null && !progress.isComplete && (
                   <Text style={styles.goalPace}>
                     Guarde {formatBRL(progress.monthlyTargetCents)}/mês para chegar no prazo
@@ -128,6 +141,10 @@ export default function GoalsScreen() {
             </View>
           );
         })}
+
+        <Pressable style={styles.fxButton} onPress={() => router.push('/fx')} accessibilityRole="link">
+          <Text style={styles.trophyText}>💶 Câmbio e alerta de preço</Text>
+        </Pressable>
 
         <Link href="/achievements" asChild>
           <Pressable style={styles.trophyButton}>
@@ -161,6 +178,15 @@ const styles = StyleSheet.create({
   editLink: { color: '#4338ca', fontSize: 14, fontWeight: '700' },
   goalBody: { gap: 8 },
   goalPeriod: { color: '#4b5563', fontSize: 12 },
+  goalFx: { color: '#1e40af', fontSize: 13, fontWeight: '600' },
+  fxButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
   goalName: { fontSize: 16, fontWeight: '700', color: '#111827' },
   doneBadge: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
   goalRow: { flexDirection: 'row', justifyContent: 'space-between' },

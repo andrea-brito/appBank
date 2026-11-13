@@ -101,6 +101,7 @@ function AppContent() {
       <Stack.Screen name="achievements" options={{ ...pushed, title: 'Conquistas' }} />
       <Stack.Screen name="month/[key]" options={{ ...pushed, title: 'Mês' }} />
       <Stack.Screen name="categories" options={{ ...pushed, title: 'Categorias' }} />
+      <Stack.Screen name="fx" options={{ ...pushed, title: 'Câmbio' }} />
       <Stack.Screen name="backup" options={{ ...modal, title: 'Backup' }} />
     </Stack>
   );

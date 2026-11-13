@@ -67,6 +67,8 @@ export function recoveryLinkState(): 'none' | 'valid' | 'expired' {
 }
 
 let client: SupabaseClient | null = null;
+/** The signed-in Supabase client (for other web-only data modules, e.g. rate alerts). */
+export const supabase = (): SupabaseClient => sb();
 function sb(): SupabaseClient {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;

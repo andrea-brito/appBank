@@ -1,15 +1,18 @@
 import { addMonths } from 'date-fns';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Link, router } from 'expo-router';
-import { useMemo } from 'react';
+import { Link, router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { db, schema } from '@/data/db/client';
 import { allDepositsQuery } from '@/data/goalRepository';
+import { useQuotes } from '@/components/useQuotes';
+import { alertsSupported, getRateAlert, type RateAlert } from '@/data/rateAlert';
 import { canSignOut, signOut } from '@/data/session';
 import { categoriesQuery, recentTransactionsQuery } from '@/data/transactionRepository';
 import { budgetStatus } from '@/domain/budgetStatus';
+import { centsToRate4, formatRate, FX_PAIR_LABEL, isAtOrBelowTarget, type FxPair, type Rate4 } from '@/domain/fx';
 import { formatBRL, sumCents } from '@/domain/money';
 import { availableCents } from '@/domain/monthlyHistory';
 import { currentMonth } from '@/domain/period';
@@ -27,6 +30,22 @@ function confirmSignOut() {
   ]);
 }
 
+/** The user's enabled rate alert, when the current rate is at or below its target (web only). */
+function useFxHit(): { pair: FxPair; rate: Rate4; targetCents: number } | null {
+  const quotes = useQuotes();
+  const [alert, setAlert] = useState<RateAlert | null>(null);
+  // Tabs stay mounted: re-read on every focus so a target saved on the Câmbio
+  // screen shows up as soon as you come back to Resumo.
+  useFocusEffect(
+    useCallback(() => {
+      if (alertsSupported) getRateAlert().then(setAlert, () => setAlert(null));
+    }, []),
+  );
+  if (!alert?.enabled || !quotes) return null;
+  const rate = quotes[alert.pair].ask;
+  return isAtOrBelowTarget(rate, alert.targetCents) ? { pair: alert.pair, rate, targetCents: alert.targetCents } : null;
+}
+
 export default function Dashboard() {
   const period = useMemo(() => currentMonth(), []);
   const nextPeriod = useMemo(() => currentMonth(addMonths(new Date(), 1)), []);
@@ -36,6 +55,7 @@ export default function Dashboard() {
   const { data: allTxns } = useLiveQuery(db.select().from(schema.transactions));
   const { data: categories } = useLiveQuery(categoriesQuery());
   const { data: deposits } = useLiveQuery(allDepositsQuery());
+  const fxHit = useFxHit();
 
   const monthTxns = (allTxns ?? []).filter(
     (t) => t.occurredAt >= period.from && t.occurredAt <= period.to,
@@ -112,6 +132,15 @@ export default function Dashboard() {
             </Text>
           )}
         </View>
+
+        {fxHit && (
+          <Pressable style={styles.fxHit} onPress={() => router.push('/fx')} accessibilityRole="link">
+            <Text style={styles.fxHitText}>
+              💶 {FX_PAIR_LABEL[fxHit.pair]} a {formatRate(fxHit.rate)}: está no seu preço (até{' '}
+              {formatRate(centsToRate4(fxHit.targetCents))}). Ver câmbio ›
+            </Text>
+          </Pressable>
+        )}
 
         {committedNextCents > 0 && (
           <Link href="/history" asChild>
@@ -206,6 +235,8 @@ const styles = StyleSheet.create({
   balanceValue: { fontSize: 26, fontWeight: '800' },
   savedNote: { color: '#4338ca', fontSize: 13, fontWeight: '600', marginTop: 2 },
   committed: { backgroundColor: '#eef2ff', borderRadius: 10, padding: 12 },
+  fxHit: { backgroundColor: '#dcfce7', borderRadius: 10, padding: 12 },
+  fxHitText: { color: '#166534', fontSize: 13, fontWeight: '700' },
   committedText: { color: '#3730a3', fontSize: 13, fontWeight: '600' },
   committedValue: { fontWeight: '800' },
   alert: { borderRadius: 10, padding: 12 },
