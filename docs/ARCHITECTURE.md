@@ -169,7 +169,7 @@ Os dados **não** são recifrados: só a cópia da DEK. Exige as duas coisas, ac
 - **Sessão não persistida** (`persistSession: false`). Recarregar descarta chave e sessão.
 - **Rebloqueio:** página oculta por 1 minuto ou mais pede a senha de novo. O rebloqueio só confere a senha contra a KEK em memória, sem rede. É uma trava de interface: as chaves continuam em memória enquanto a aba existir.
 - **Sair:** salva o que estiver pendente (recusa se não conseguir), encerra a sessão local e recarrega a página.
-- **Cabeçalhos** (`vercel.json`): `COEP: require-corp` e `COOP: same-origin` (isolamento exigido pelo `SharedArrayBuffer`), `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`. A Vercel adiciona HSTS.
+- **Cabeçalhos** (`vercel.json`): `COEP: require-corp` e `COOP: same-origin` (isolamento exigido pelo `SharedArrayBuffer`), **Content-Security-Policy** restrita (scripts só do site, rede só para o site e o Supabase, sem `eval`, sem iframe), `X-Frame-Options: DENY`, `Permissions-Policy`, `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`. A Vercel adiciona HSTS. Detalhes e testes em [`SECURITY.md`](SECURITY.md) (item 3). `scripts/check-csp.mjs` falha o build se o script inline do Expo mudar sem a CSP acompanhar.
 - **Por que `require-corp` e não `credentialless`:** o Safari não suporta `credentialless`. A página fica sem isolamento, o `SharedArrayBuffer` não existe e toda consulta do banco falha. O app só carrega recursos próprios e fala com o Supabase via CORS, então `require-corp` funciona nos dois navegadores.
 
 ## 6. Sincronização

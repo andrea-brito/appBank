@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { getRandomBytes } from 'expo-crypto';
 import {
@@ -30,6 +31,11 @@ import * as schema from './schema';
  * uploaded on each save. Fine for a personal ledger; upgrade path is a local
  * encrypted cache + incremental sync.
  */
+// The CSP (vercel.json) forbids eval. zod probes `new Function` once to pick a
+// faster path; it falls back on its own, but the probe logs a CSP violation.
+// jitless skips the probe so real violations are not drowned out.
+z.config({ jitless: true });
+
 const SAVE_DELAY_MS = 800;
 const RETRY_MS = 10_000;
 const EMAIL_KEY = 'appbank_email';

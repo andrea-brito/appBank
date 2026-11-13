@@ -108,7 +108,8 @@ Uma vez, num projeto novo (plano gratuito basta):
 
 - Projeto ligado ao repositório, com **Production Branch = `feature/web-pwa`**. Cada push nessa branch publica sozinho, em cerca de 2 a 3 minutos.
 - **Environment Variables:** `EXPO_PUBLIC_SUPABASE_URL` e `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
-- O [`vercel.json`](vercel.json) define o build (`npx expo export -p web`), a pasta (`dist`), os cabeçalhos de segurança e a reescrita de `/month/:key`.
+- O [`vercel.json`](vercel.json) define o build (`npx expo export -p web` + `scripts/check-csp.mjs`), a pasta (`dist`), os cabeçalhos de segurança (inclusive a CSP) e a reescrita de `/month/:key`.
+- **Se o deploy falhar com "Inline scripts not allowed by the CSP"**, é porque uma atualização do Expo mudou o script inline. O erro mostra o hash novo: substitua o `sha256-...` em `script-src` no `vercel.json`.
 
 ## Usar no iPhone
 

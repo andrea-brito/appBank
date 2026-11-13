@@ -27,7 +27,7 @@ Quem pode atacar:
 | Segredos no repositório | `git grep` por `service_role`, `sb_secret`, JWT | ✅ Nenhum; `.env` fora do Git |
 | HTML injetado / `eval` | `git grep` por `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `new Function` | ✅ Nenhum uso; texto de OFX/PIX é exibido como texto pelo React |
 | Source maps públicos | Bundle publicado | ✅ Não publicados |
-| Cabeçalhos | `curl -I` no site | ✅ HSTS, `nosniff`, `no-referrer`, `noindex`, COOP/COEP. ❌ Sem CSP e sem proteção contra *framing* |
+| Cabeçalhos | `curl -I` no site | ✅ HSTS, `nosniff`, `no-referrer`, `noindex`, COOP/COEP, **CSP**, `X-Frame-Options`, `Permissions-Policy` (ver item 3) |
 | Cadastro aberto | `GET /auth/v1/settings` | ❌ `disable_signup = false` |
 | Dependências | `npm audit --omit=dev` | ⚠️ 5 moderadas (`glob`/`minimatch` no `@expo/cli`), só em ferramentas de build, não chegam ao navegador |
 
@@ -47,25 +47,32 @@ O maior risco real não é o Supabase vazar, é **alguém publicar código alter
 - Ativar 2FA no **GitHub**, na **Vercel**, no **Supabase** e no **e-mail**. O e-mail é metade da recuperação de senha.
 - Revisar o token pessoal do GitHub guardado no Windows: escopo mínimo e com validade.
 
-### 3. Sem Content-Security-Policy e sem bloqueio de *framing* (média, ~1 hora com testes)
+### 3. ✅ Content-Security-Policy e bloqueio de *framing* (feito em 12/11/2026)
 
-Hoje não há injeção de HTML no código, mas a CSP é a segunda barreira se aparecer uma (dependência comprometida, regressão futura). Ela impede o envio de dados para domínios fora da lista. `frame-ancestors 'none'` impede que outro site exiba o app num iframe para enganar cliques.
+A CSP é a segunda barreira se algum dia aparecer código injetado (dependência comprometida, regressão futura): ele não roda e não consegue mandar dados para fora. `frame-ancestors 'none'` + `X-Frame-Options: DENY` impedem que outro site exiba o app num iframe para enganar cliques.
 
-**Proposta** (no `vercel.json` e no `metro.config.js`):
+Política em produção (`vercel.json`):
 
-```
-default-src 'self';
-script-src 'self' 'wasm-unsafe-eval' 'sha256-<hash do script inline de hidratação>';
-style-src 'self' 'unsafe-inline';
-connect-src 'self' https://sfbhqmkueejfguivltil.supabase.co;
-img-src 'self' data: blob:;
-worker-src 'self' blob:;
-frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
-```
+| Diretiva | Valor | Por quê |
+| --- | --- | --- |
+| `default-src` | `'self'` | Base: só a própria origem. |
+| `script-src` | `'self' 'wasm-unsafe-eval' 'sha256-…'` | Só scripts do próprio site. `wasm-unsafe-eval` é o mínimo para o SQLite em WebAssembly. O hash libera o **único** script inline que o Expo gera (`__EXPO_ROUTER_HYDRATE__`). Sem `unsafe-inline` e sem `unsafe-eval`. |
+| `style-src` | `'self' 'unsafe-inline'` | O React Native Web injeta estilos em tempo de execução. Estilo inline não executa código. |
+| `connect-src` | `'self'` + URL do Supabase | Únicos destinos de rede: bloqueia o envio de dados para outro lugar. |
+| `worker-src` | `'self' blob:` | O banco cria o worker a partir de um `blob:`. Só um script já aprovado consegue criar esse blob. |
+| `img-src` / `font-src` | `'self' data:` (+ `blob:` em img) | Ícones e emojis. |
+| `frame-ancestors` | `'none'` | Ninguém embute o app. |
+| `base-uri`, `form-action`, `object-src` | `'none'` | Fecha vetores clássicos de injeção. |
+| `upgrade-insecure-requests` | | Qualquer `http://` vira `https://`. |
 
-E também `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+Junto: `Permissions-Policy` desliga câmera, microfone, geolocalização, pagamento e USB.
 
-Pontos a testar antes de publicar: o Expo gera um `<script>` inline (`__EXPO_ROUTER_HYDRATE__`), que precisa do hash. O SQLite precisa de `'wasm-unsafe-eval'` para o WebAssembly. O React Native Web injeta estilos, daí o `'unsafe-inline'` só em `style-src`. Testar no Chrome e no Safari.
+**Como foi verificado:**
+- A CSP lida do próprio `vercel.json` foi testada no Chrome e no motor do Safari (WebKit). Os testes passaram por todas as telas e pelos fluxos principais: criar conta, lançar, parcelar, editar, histórico, backup, categorias, metas, conquistas, importar, recarregar e entrar, abrir `/month/...` direto e sair. **Zero violações** nos dois navegadores.
+- Simulação de ataque: script inline injetado, `fetch` e imagem para outro domínio e `eval` foram **todos bloqueados**. O iframe também foi bloqueado.
+- O zod roda em modo `jitless` na web, para não testar `new Function` e não gerar avisos falsos de violação.
+
+**Manutenção:** o hash depende do que o Expo gera. `scripts/check-csp.mjs` roda no build da Vercel (`buildCommand`) e **falha o deploy** se algum script inline não estiver liberado na CSP, já mostrando o hash certo para colar. A CSP não vale no `npm run web` (desenvolvimento usa `eval` para recarregar o código), só no build de produção.
 
 ### 4. Custo do scrypt da conta abaixo do recomendado (média, meio dia)
 
@@ -113,6 +120,6 @@ Qualquer um com a URL baixa o app e vê a tela de login. O código não tem segr
 ## Ordem sugerida
 
 1. Desligar o cadastro (item 1) e ativar 2FA nas contas (item 2): só configuração, hoje.
-2. CSP e anti-*framing* (item 3).
+2. ~~CSP e anti-*framing* (item 3)~~ feito.
 3. KDF mais forte (item 4) e histórico de versões (item 5).
 4. Itens 6 a 9 quando sobrar tempo.
