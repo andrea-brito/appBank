@@ -228,6 +228,21 @@ export async function syncFromServer(): Promise<boolean> {
   return true;
 }
 
+/**
+ * Sign out: push pending changes first (refuse if they can't be saved, so
+ * nothing is lost), end the Supabase session, then reload the page, which
+ * drops the in-memory database and keys.
+ */
+export async function signOut(): Promise<void> {
+  if (dirty) flush();
+  await saving;
+  if (dirty) {
+    throw new Error('Há mudanças que ainda não foram salvas no servidor (sem internet?). Tente sair quando a conexão voltar.');
+  }
+  await sb().auth.signOut({ scope: 'local' }).catch(() => {}); // local session only; the page reload clears the rest
+  window.location.replace('/');
+}
+
 /** Sends the Supabase "reset password" e-mail. The link reopens this app. */
 export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), {

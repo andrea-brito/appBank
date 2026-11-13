@@ -2,7 +2,9 @@ import { addMonths } from 'date-fns';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Link, router } from 'expo-router';
 import { useMemo } from 'react';
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { canSignOut, signOut } from '@/data/session';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { db, schema } from '@/data/db/client';
@@ -10,6 +12,19 @@ import { categoriesQuery, recentTransactionsQuery } from '@/data/transactionRepo
 import { budgetStatus } from '@/domain/budgetStatus';
 import { formatBRL, sumCents } from '@/domain/money';
 import { currentMonth } from '@/domain/period';
+
+function confirmSignOut() {
+  Alert.alert('Sair da conta', 'Seus dados ficam salvos no servidor. Para voltar, entre com seu e-mail e senha.', [
+    { text: 'Cancelar', style: 'cancel' },
+    {
+      text: 'Sair',
+      style: 'destructive',
+      onPress: () => {
+        signOut().catch((e) => Alert.alert('Não foi possível sair', e instanceof Error ? e.message : 'Erro'));
+      },
+    },
+  ]);
+}
 
 export default function Dashboard() {
   const period = useMemo(() => currentMonth(), []);
@@ -60,6 +75,11 @@ export default function Dashboard() {
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>Este mês</Text>
+          {canSignOut && (
+            <Pressable onPress={confirmSignOut} accessibilityRole="button" hitSlop={12}>
+              <Text style={styles.signOut}>Sair</Text>
+            </Pressable>
+          )}
           {/* Web saves to the server automatically; backup lives at the end of Histórico there. */}
           {Platform.OS !== 'web' && (
             <Link href="/backup" asChild>
@@ -162,6 +182,7 @@ const styles = StyleSheet.create({
   header: { padding: 16, gap: 12 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   backupIcon: { fontSize: 22 },
+  signOut: { color: '#4338ca', fontSize: 15, fontWeight: '700' },
   title: { fontSize: 22, fontWeight: '700', color: '#111827' },
   cards: { flexDirection: 'row', gap: 12 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 4 },
