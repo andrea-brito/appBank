@@ -198,6 +198,36 @@ export async function unlockVault(
   return code;
 }
 
+/**
+ * Pull changes made on another device. The page can stay alive for days (iOS
+ * freezes it in the background), so the data loaded at login goes stale.
+ * Local unsaved changes are pushed first; if the server then has a newer
+ * version, it replaces the in-memory DB. Returns true when data changed (the
+ * caller remounts the screens, since loading a DB this way does not notify
+ * live queries).
+ */
+export async function syncFromServer(): Promise<boolean> {
+  if (!dek || conflict) return false;
+  if (dirty) flush();
+  await saving;
+  if (dirty || conflict) return false; // save failed or conflicted: keep local state
+
+  let row: Row | null;
+  try {
+    row = await fetchRow();
+  } catch {
+    return false; // offline: keep what we have, try again next time
+  }
+  if (!row || row.version === version) return false;
+
+  await loadData(dek, row);
+  // Loading fires change events for every row; they arrive before the load
+  // resolves, so cancel the save they scheduled (nothing changed locally).
+  clearTimeout(timer);
+  dirty = false;
+  return true;
+}
+
 /** Sends the Supabase "reset password" e-mail. The link reopens this app. */
 export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), {

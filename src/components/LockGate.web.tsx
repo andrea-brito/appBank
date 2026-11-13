@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PasswordInput } from '@/components/PasswordInput';
@@ -7,6 +7,7 @@ import {
   recoverAccount,
   recoveryLinkState,
   requestPasswordReset,
+  syncFromServer,
   unlockVault,
 } from '@/data/db/client.web';
 
@@ -42,6 +43,13 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const hiddenAt = useRef<number | null>(null);
+  // Bumped when newer data arrives from another device: remounts the screens
+  // so every query reads the fresh database.
+  const [dataKey, setDataKey] = useState(0);
+
+  async function pullChanges() {
+    if (await syncFromServer()) setDataKey((k) => k + 1);
+  }
 
   const relock = everUnlocked;
   const choosingPass = !relock && (screen === 'signup' || screen === 'recover');
@@ -100,6 +108,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
           setPass('');
           setPass2('');
         } else {
+          if (relock) await pullChanges(); // fresh data before showing it again
           enter();
         }
       } else if (screen === 'forgot') {
@@ -132,9 +141,15 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     const onChange = () => {
       if (document.visibilityState === 'hidden') {
         hiddenAt.current = Date.now();
-      } else if (hiddenAt.current != null && Date.now() - hiddenAt.current >= RELOCK_AFTER_MS) {
-        hiddenAt.current = null;
-        setUnlocked(false);
+        return;
+      }
+      if (hiddenAt.current == null) return;
+      const away = Date.now() - hiddenAt.current;
+      hiddenAt.current = null;
+      if (away >= RELOCK_AFTER_MS) {
+        setUnlocked(false); // passphrase again; changes are pulled after it
+      } else {
+        void pullChanges(); // quick return: still pick up edits from the PC
       }
     };
     document.addEventListener('visibilitychange', onChange);
@@ -159,7 +174,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   return (
     <View style={styles.root}>
       <View style={styles.root} aria-hidden={!unlocked} pointerEvents={unlocked ? 'auto' : 'none'}>
-        {everUnlocked && children}
+        {everUnlocked && <Fragment key={dataKey}>{children}</Fragment>}
       </View>
       {!unlocked && (
         <View style={styles.lock} accessibilityViewIsModal>
