@@ -32,6 +32,25 @@ export async function createGoal(input: NewGoalInput): Promise<string> {
   return id;
 }
 
+export async function getGoal(id: string) {
+  const [row] = await db.select().from(schema.goals).where(eq(schema.goals.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function updateGoal(id: string, input: NewGoalInput): Promise<void> {
+  await db
+    .update(schema.goals)
+    .set({
+      name: input.name,
+      icon: input.icon ?? '🎯',
+      color: input.color ?? '#6366f1',
+      targetCents: input.targetCents,
+      startAt: input.startAt,
+      endAt: input.endAt,
+    })
+    .where(eq(schema.goals.id, id));
+}
+
 export async function addDeposit(goalId: string, amountCents: Cents, occurredAt: number) {
   await db.insert(schema.goalDeposits).values({
     id: randomId(),

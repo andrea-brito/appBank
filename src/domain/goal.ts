@@ -1,5 +1,6 @@
 import { differenceInCalendarMonths } from 'date-fns';
 
+import { parseDateBR } from './dates';
 import type { Cents } from './money';
 
 export interface GoalProgress {
@@ -12,6 +13,20 @@ export interface GoalProgress {
   monthsLeft: number | null;
   /** Suggested per-month deposit to hit the target by endAt, or null. */
   monthlyTargetCents: Cents | null;
+}
+
+/**
+ * Goal period from the form. Start is required, end optional ("sem prazo").
+ * Throws a message meant for the user.
+ */
+export function parseGoalPeriod(startText: string, endText: string): { startAt: number; endAt: number | null } {
+  const startAt = parseDateBR(startText);
+  if (startAt == null) throw new Error('Data de início inválida. Use dd/mm/aaaa.');
+  if (endText.trim() === '') return { startAt, endAt: null };
+  const endAt = parseDateBR(endText);
+  if (endAt == null) throw new Error('Data final inválida. Use dd/mm/aaaa, ou deixe em branco para sem prazo.');
+  if (endAt < startAt) throw new Error('A data final não pode ser antes do início.');
+  return { startAt, endAt };
 }
 
 /**

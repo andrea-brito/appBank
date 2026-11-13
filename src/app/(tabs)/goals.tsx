@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSavingsSuggestion } from '@/application/savingsInsight';
 import { ProgressBar } from '@/components/ProgressBar';
 import { activeGoalsQuery, allDepositsQuery, savedPerGoalQuery } from '@/data/goalRepository';
+import { formatDateBR } from '@/domain/dates';
 import { goalProgress } from '@/domain/goal';
 import { goalAlerts } from '@/domain/goalAlert';
 import { formatBRL } from '@/domain/money';
@@ -72,14 +73,30 @@ export default function GoalsScreen() {
           const progress = goalProgress(savedMap.get(g.id) ?? 0, g.targetCents, g.endAt);
           const alerts = goalAlerts(progress, savedThisMonthMap.get(g.id) ?? 0);
           return (
-            <Link key={g.id} href={{ pathname: '/deposit', params: { goalId: g.id } }} asChild>
-              <Pressable style={styles.goalCard}>
-                <View style={styles.goalHeader}>
-                  <Text style={styles.goalName}>
-                    {g.icon} {g.name}
-                  </Text>
-                  {progress.isComplete && <Text style={styles.doneBadge}>✓ Concluída</Text>}
-                </View>
+            <View key={g.id} style={styles.goalCard}>
+              <View style={styles.goalHeader}>
+                <Text style={[styles.goalName, styles.flex]} numberOfLines={1}>
+                  {g.icon} {g.name}
+                </Text>
+                {progress.isComplete && <Text style={styles.doneBadge}>✓ Concluída</Text>}
+                <Pressable
+                  onPress={() => router.push({ pathname: '/goal-new', params: { id: g.id } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Editar meta ${g.name}`}
+                  hitSlop={10}
+                >
+                  <Text style={styles.editLink}>Editar</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                style={styles.goalBody}
+                onPress={() => router.push({ pathname: '/deposit', params: { goalId: g.id } })}
+                accessibilityRole="button"
+                accessibilityLabel={`Guardar dinheiro na meta ${g.name}`}
+              >
+                <Text style={styles.goalPeriod}>
+                  {formatDateBR(g.startAt)} → {g.endAt != null ? formatDateBR(g.endAt) : 'sem prazo'}
+                </Text>
                 <ProgressBar ratio={progress.ratio} color={g.color} />
                 <View style={styles.goalRow}>
                   <Text style={styles.goalSaved}>
@@ -108,7 +125,7 @@ export default function GoalsScreen() {
                   </Text>
                 ))}
               </Pressable>
-            </Link>
+            </View>
           );
         })}
 
@@ -139,7 +156,11 @@ const styles = StyleSheet.create({
   disclaimer: { color: '#9ca3af', fontSize: 11, fontStyle: 'italic', marginTop: 4 },
   empty: { color: '#9ca3af', textAlign: 'center', marginTop: 16 },
   goalCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 8 },
-  goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  goalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  flex: { flex: 1 },
+  editLink: { color: '#4338ca', fontSize: 14, fontWeight: '700' },
+  goalBody: { gap: 8 },
+  goalPeriod: { color: '#4b5563', fontSize: 12 },
   goalName: { fontSize: 16, fontWeight: '700', color: '#111827' },
   doneBadge: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
   goalRow: { flexDirection: 'row', justifyContent: 'space-between' },

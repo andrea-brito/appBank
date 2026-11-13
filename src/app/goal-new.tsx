@@ -1,7 +1,8 @@
-import { router } from 'expo-router';
 import { addMonths } from 'date-fns';
-import { useState } from 'react';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -11,12 +12,13 @@ import {
   View,
 } from 'react-native';
 
-import { createGoalUseCase } from '@/application/manageGoals';
+import { createGoalUseCase, updateGoalUseCase } from '@/application/manageGoals';
+import { getGoal } from '@/data/goalRepository';
+import { CATEGORY_COLORS, GOAL_ICONS } from '@/domain/category';
+import { centsToInput, formatDateBR, parseDateBR } from '@/domain/dates';
+import { parseGoalPeriod } from '@/domain/goal';
 
-const ICONS = ['🎯', '✈️', '🏖️', '🏠', '🚗', '🐷', '💍', '🎓', '🚨'];
-
-// Deadline presets keep the UI dependency-free: no native date picker needed
-// for the common "save by N months" case. "Sem prazo" = open-ended goal.
+// Presets fill the end date from the start date; the field stays editable.
 const DEADLINES: { label: string; months: number | null }[] = [
   { label: 'Sem prazo', months: null },
   { label: '3 meses', months: 3 },
@@ -25,38 +27,107 @@ const DEADLINES: { label: string; months: number | null }[] = [
   { label: '2 anos', months: 24 },
 ];
 
-export default function GoalNewScreen() {
+/** New goal, or edit when opened with ?id=<goal id>. */
+export default function GoalFormScreen() {
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const editingId = typeof id === 'string' && id !== '' ? id : null;
+
   const [name, setName] = useState('');
   const [targetText, setTargetText] = useState('');
   const [icon, setIcon] = useState('🎯');
-  const [deadlineIdx, setDeadlineIdx] = useState(0);
+  const [color, setColor] = useState('#6366f1');
+  const [startText, setStartText] = useState(() => formatDateBR(Date.now()));
+  const [endText, setEndText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(!editingId);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const once = useRef(false);
+
+  useEffect(() => {
+    if (!editingId || once.current) return;
+    once.current = true;
+    getGoal(editingId)
+      .then((g) => {
+        if (!g) {
+          setLoadError('Meta não encontrada.');
+          return;
+        }
+        setName(g.name);
+        setTargetText(centsToInput(g.targetCents));
+        setIcon(g.icon);
+        setColor(g.color);
+        setStartText(formatDateBR(g.startAt));
+        setEndText(g.endAt != null ? formatDateBR(g.endAt) : '');
+        setLoaded(true);
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Erro ao carregar.'));
+  }, [editingId]);
+
+  function applyPreset(months: number | null) {
+    if (months == null) {
+      setEndText('');
+      return;
+    }
+    const start = parseDateBR(startText);
+    if (start == null) {
+      Alert.alert('Data de início inválida', 'Preencha o início (dd/mm/aaaa) antes de escolher o prazo.');
+      return;
+    }
+    setEndText(formatDateBR(addMonths(start, months).getTime()));
+  }
+
+  // Which preset matches the current dates (for highlighting), if any.
+  const start = parseDateBR(startText);
+  const activePreset = DEADLINES.findIndex((d) =>
+    d.months == null
+      ? endText.trim() === ''
+      : start != null && endText.trim() === formatDateBR(addMonths(start, d.months).getTime()),
+  );
 
   async function handleSave() {
     setSaving(true);
     try {
-      const months = DEADLINES[deadlineIdx].months;
-      const endAt = months == null ? null : addMonths(new Date(), months).getTime();
-      await createGoalUseCase({ name, targetText, icon, endAt });
+      const { startAt, endAt } = parseGoalPeriod(startText, endText);
+      const input = { name, targetText, icon, color, startAt, endAt };
+      if (editingId) await updateGoalUseCase(editingId, input);
+      else await createGoalUseCase(input);
       router.back();
     } catch (e) {
-      Alert.alert('Não foi possível criar', e instanceof Error ? e.message : 'Erro desconhecido');
+      Alert.alert('Não foi possível salvar', e instanceof Error ? e.message : 'Erro desconhecido');
     } finally {
       setSaving(false);
     }
   }
 
+  const title = editingId ? 'Editar meta' : 'Nova meta';
+
+  if (!loaded) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title }} />
+        {loadError ? <Text style={styles.error}>{loadError}</Text> : <ActivityIndicator size="large" />}
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.label}>Nome da meta</Text>
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="Ex: Viagem para a praia"
-        autoFocus
-        maxLength={80}
-      />
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Stack.Screen options={{ title }} />
+
+      <View style={styles.preview}>
+        <View style={[styles.previewIcon, { backgroundColor: `${color}1a`, borderColor: color }]}>
+          <Text style={styles.previewEmoji}>{icon || '❔'}</Text>
+        </View>
+        <TextInput
+          style={[styles.input, styles.flex]}
+          value={name}
+          onChangeText={setName}
+          placeholder="Ex: Viagem para a praia"
+          autoFocus={!editingId}
+          maxLength={80}
+          accessibilityLabel="Nome da meta"
+        />
+      </View>
 
       <Text style={styles.label}>Valor-alvo</Text>
       <TextInput
@@ -65,32 +136,84 @@ export default function GoalNewScreen() {
         onChangeText={setTargetText}
         placeholder="5.000,00"
         keyboardType="decimal-pad"
+        accessibilityLabel="Valor-alvo"
       />
 
       <Text style={styles.label}>Ícone</Text>
-      <View style={styles.iconRow}>
-        {ICONS.map((i) => (
+      <View style={styles.wrap}>
+        {GOAL_ICONS.map((i) => (
           <Pressable
             key={i}
             onPress={() => setIcon(i)}
-            style={[styles.iconChip, icon === i && styles.iconChipActive]}
+            style={[styles.iconChip, icon === i && { borderColor: color, backgroundColor: `${color}1a` }]}
+            accessibilityRole="radio"
+            accessibilityLabel={`Ícone ${i}`}
+            accessibilityState={{ selected: icon === i }}
           >
             <Text style={styles.iconText}>{i}</Text>
           </Pressable>
         ))}
       </View>
+      <TextInput
+        style={styles.input}
+        value={icon}
+        onChangeText={setIcon}
+        placeholder="ou digite/cole um emoji"
+        maxLength={16}
+        accessibilityLabel="Emoji da meta"
+      />
+
+      <Text style={styles.label}>Cor</Text>
+      <View style={styles.wrap}>
+        {CATEGORY_COLORS.map((c, idx) => (
+          <Pressable
+            key={c}
+            onPress={() => setColor(c)}
+            style={[styles.colorDot, { backgroundColor: c }, color === c && styles.colorDotActive]}
+            accessibilityRole="radio"
+            accessibilityLabel={`Cor ${idx + 1}`}
+            accessibilityState={{ selected: color === c }}
+          />
+        ))}
+      </View>
 
       <Text style={styles.label}>Prazo</Text>
-      <View style={styles.deadlineRow}>
+      <View style={styles.dates}>
+        <View style={styles.flex}>
+          <Text style={styles.small}>Início</Text>
+          <TextInput
+            style={styles.input}
+            value={startText}
+            onChangeText={setStartText}
+            placeholder="dd/mm/aaaa"
+            keyboardType="numbers-and-punctuation"
+            maxLength={10}
+            accessibilityLabel="Data de início, dia barra mês barra ano"
+          />
+        </View>
+        <View style={styles.flex}>
+          <Text style={styles.small}>Fim (vazio = sem prazo)</Text>
+          <TextInput
+            style={styles.input}
+            value={endText}
+            onChangeText={setEndText}
+            placeholder="dd/mm/aaaa"
+            keyboardType="numbers-and-punctuation"
+            maxLength={10}
+            accessibilityLabel="Data final, dia barra mês barra ano. Vazio para sem prazo"
+          />
+        </View>
+      </View>
+      <View style={styles.wrap}>
         {DEADLINES.map((d, idx) => (
           <Pressable
             key={d.label}
-            onPress={() => setDeadlineIdx(idx)}
-            style={[styles.deadlineChip, deadlineIdx === idx && styles.deadlineChipActive]}
+            onPress={() => applyPreset(d.months)}
+            style={[styles.deadlineChip, activePreset === idx && styles.deadlineChipActive]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: activePreset === idx }}
           >
-            <Text style={[styles.deadlineText, deadlineIdx === idx && styles.deadlineTextActive]}>
-              {d.label}
-            </Text>
+            <Text style={[styles.deadlineText, activePreset === idx && styles.deadlineTextActive]}>{d.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -99,8 +222,11 @@ export default function GoalNewScreen() {
         style={[styles.saveButton, saving && styles.saveButtonDisabled]}
         onPress={handleSave}
         disabled={saving}
+        accessibilityRole="button"
       >
-        <Text style={styles.saveText}>{saving ? 'Criando…' : 'Criar meta'}</Text>
+        <Text style={styles.saveText}>
+          {saving ? 'Salvando…' : editingId ? 'Salvar alterações' : 'Criar meta'}
+        </Text>
       </Pressable>
     </ScrollView>
   );
@@ -108,8 +234,15 @@ export default function GoalNewScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f9fafb' },
-  content: { padding: 16, gap: 8 },
+  content: { padding: 16, gap: 8, paddingBottom: 32 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  error: { color: '#b91c1c', textAlign: 'center' },
+  flex: { flex: 1 },
+  preview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  previewIcon: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  previewEmoji: { fontSize: 26, lineHeight: 30 },
   label: { color: '#374151', fontSize: 14, fontWeight: '600', marginTop: 8 },
+  small: { color: '#4b5563', fontSize: 12, marginBottom: 4 },
   input: { backgroundColor: '#fff', borderRadius: 10, padding: 14, fontSize: 16, color: '#111827' },
   amountInput: {
     backgroundColor: '#fff',
@@ -119,7 +252,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
-  iconRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   iconChip: {
     width: 44,
     height: 44,
@@ -130,9 +263,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#e5e7eb',
   },
-  iconChipActive: { borderColor: '#6366f1', backgroundColor: '#eef2ff' },
-  iconText: { fontSize: 20 },
-  deadlineRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  iconText: { fontSize: 22, lineHeight: 26 },
+  colorDot: { width: 36, height: 36, borderRadius: 18, borderWidth: 3, borderColor: '#fff' },
+  colorDotActive: { borderColor: '#111827' },
+  dates: { flexDirection: 'row', gap: 12 },
   deadlineChip: {
     paddingVertical: 10,
     paddingHorizontal: 14,

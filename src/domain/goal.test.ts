@@ -2,7 +2,8 @@
  * Runnable self-check for goal progress and savings suggestion math.
  * Run with: npx tsx src/domain/goal.test.ts
  */
-import { goalProgress } from './goal';
+import { isSingleEmoji } from './category';
+import { goalProgress, parseGoalPeriod } from './goal';
 import { suggestSavings } from './savingsSuggestion';
 
 let failures = 0;
@@ -40,6 +41,25 @@ check('complete -> monthly target 0', g3.monthlyTargetCents === 0);
 const g4 = goalProgress(0, 100_000, new Date('2025-12-01T00:00:00Z').getTime(), now);
 check('past deadline -> monthsLeft >= 1', (g4.monthsLeft ?? 0) >= 1);
 check('past deadline -> whole remaining due', g4.monthlyTargetCents === 100_000);
+
+// --- parseGoalPeriod ---
+function err(fn: () => unknown): string {
+  try {
+    fn();
+    return '';
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+const p1 = parseGoalPeriod('01/02/2026', '');
+check('no end -> sem prazo', p1.endAt === null && new Date(p1.startAt).getMonth() === 1);
+const p2 = parseGoalPeriod('01/02/2026', '31/12/2026');
+check('start and end parsed', new Date(p2.endAt!).getDate() === 31);
+check('same day is fine', parseGoalPeriod('05/05/2026', '05/05/2026').endAt != null);
+check('end before start refused', err(() => parseGoalPeriod('10/05/2026', '09/05/2026')).includes('antes'));
+check('bad start refused', err(() => parseGoalPeriod('', '')).includes('início'));
+check('bad end refused', err(() => parseGoalPeriod('01/01/2026', '30/02/2026')).includes('final'));
+check('single emoji', isSingleEmoji('🏖️') && isSingleEmoji(' 🎯 ') && !isSingleEmoji('🎯🎯') && !isSingleEmoji('A') && !isSingleEmoji(''));
 
 // --- suggestSavings ---
 // two months, avg leftover = (100000 + 80000)/2 = 90000; no budget

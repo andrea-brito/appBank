@@ -8,6 +8,12 @@ export const CATEGORY_ICONS = [
   '🏋️', '🎓', '🐶', '👶', '🎁', '💳', '🍺', '☕', '💼', '💰', '📈', '💸',
 ] as const;
 
+/** Quick picks for savings goals; any emoji can also be typed. */
+export const GOAL_ICONS = [
+  '🎯', '🐷', '💰', '🚨', '✈️', '🏖️', '🏝️', '🌎', '🏠', '🛋️', '🚗', '🏍️',
+  '💍', '👶', '🎓', '📚', '💻', '📱', '🎮', '🎸', '🐶', '🏥', '🎁', '🎉',
+] as const;
+
 /** Readable on white and as a 10% tint. */
 export const CATEGORY_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981',
@@ -35,6 +41,12 @@ function graphemes(s: string): number {
   return segmenter ? [...segmenter.segment(s)].length : [...s].length;
 }
 
+/** Exactly one emoji (multi-codepoint ones like 🏋️ or 👨‍👩‍👧 count as one). */
+export function isSingleEmoji(s: string): boolean {
+  const icon = s.trim();
+  return icon !== '' && graphemes(icon) === 1 && !/[\p{L}\p{N}]/u.test(icon);
+}
+
 const key = (name: string) => name.trim().toLocaleLowerCase('pt-BR').normalize('NFKC');
 
 /**
@@ -50,7 +62,7 @@ export function validateCategory(
   const icon = draft.icon.trim();
   if (name === '') throw new Error('Dê um nome para a categoria.');
   if (graphemes(name) > CATEGORY_NAME_MAX) throw new Error(`Nome com no máximo ${CATEGORY_NAME_MAX} caracteres.`);
-  if (icon === '' || graphemes(icon) > 1 || /[\p{L}\p{N}]/u.test(icon)) {
+  if (!isSingleEmoji(icon)) {
     throw new Error('Escolha um emoji para o ícone.');
   }
   if (!/^#[0-9a-f]{6}$/i.test(draft.color)) throw new Error('Cor inválida.');
