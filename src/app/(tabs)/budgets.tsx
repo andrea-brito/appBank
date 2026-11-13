@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -43,7 +44,12 @@ export default function BudgetsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Orçamento mensal</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Orçamento mensal</Text>
+          <Pressable onPress={() => router.push('/categories')} accessibilityRole="link" hitSlop={8}>
+            <Text style={styles.manage}>Gerenciar categorias</Text>
+          </Pressable>
+        </View>
         <Text style={styles.subtitle}>Defina um limite por categoria. Avisamos se estourar.</Text>
 
         {expenseCategories.map((c) => {
@@ -159,7 +165,9 @@ function BudgetRow({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#f9fafb' },
   content: { padding: 16, gap: 12 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   title: { fontSize: 22, fontWeight: '700', color: '#111827' },
+  manage: { color: '#4338ca', fontSize: 14, fontWeight: '700' },
   subtitle: { color: '#6b7280', fontSize: 13, marginTop: -6 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 8 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

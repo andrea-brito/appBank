@@ -287,6 +287,14 @@ export default function AddScreen() {
             <Text style={styles.categoryName}>{c.name}</Text>
           </Pressable>
         ))}
+        <Pressable
+          onPress={() => router.push({ pathname: '/categories', params: { kind } })}
+          style={[styles.categoryChip, styles.newCategoryChip]}
+          accessibilityRole="button"
+          accessibilityLabel="Criar nova categoria"
+        >
+          <Text style={styles.newCategoryText}>+ Nova</Text>
+        </Pressable>
       </View>
 
       <Pressable
@@ -351,6 +359,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#e5e7eb',
   },
+  newCategoryChip: { borderStyle: 'dashed', borderColor: '#a5b4fc' },
+  newCategoryText: { color: '#4338ca', fontSize: 13, fontWeight: '700' },
   categoryIcon: { fontSize: 16 },
   categoryName: { color: '#374151', fontSize: 13 },
   saveButton: {

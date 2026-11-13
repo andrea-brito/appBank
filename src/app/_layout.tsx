@@ -100,6 +100,7 @@ function AppContent() {
       <Stack.Screen name="import" options={{ ...modal, title: 'Importar boleto / PIX' }} />
       <Stack.Screen name="achievements" options={{ ...pushed, title: 'Conquistas' }} />
       <Stack.Screen name="month/[key]" options={{ ...pushed, title: 'Mês' }} />
+      <Stack.Screen name="categories" options={{ ...pushed, title: 'Categorias' }} />
       <Stack.Screen name="backup" options={{ ...modal, title: 'Backup' }} />
     </Stack>
   );

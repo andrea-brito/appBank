@@ -1,3 +1,5 @@
+import { sql } from 'drizzle-orm';
+
 import { db, schema } from './db/client';
 
 const DEFAULT_CATEGORIES = [
@@ -10,8 +12,16 @@ const DEFAULT_CATEGORIES = [
   { id: 'cat-salary', name: 'Salário', icon: '💰', color: '#22c55e', kind: 'income' as const },
 ];
 
-/** Insert default categories once. onConflictDoNothing keeps this idempotent. */
+/**
+ * Insert the default categories on a brand-new database only. Categories are
+ * user-editable now, so re-inserting on every launch would bring back the ones
+ * the user deleted.
+ * ponytail: "empty table" stands in for "first run"; deleting every category
+ * brings the defaults back, which is a fine outcome for an empty list.
+ */
 export async function seedDefaultCategories(): Promise<void> {
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.categories);
+  if (n > 0) return;
   await db
     .insert(schema.categories)
     .values(DEFAULT_CATEGORIES.map((c) => ({ ...c, budgetCents: null })))
