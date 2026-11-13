@@ -51,6 +51,15 @@ export async function updateGoal(id: string, input: NewGoalInput): Promise<void>
     .where(eq(schema.goals.id, id));
 }
 
+/** Delete a goal and its deposits, together (sync transaction, like backupRepository). */
+export async function deleteGoal(id: string): Promise<void> {
+  // Explicit instead of relying on ON DELETE CASCADE (needs PRAGMA foreign_keys).
+  db.transaction((tx) => {
+    tx.delete(schema.goalDeposits).where(eq(schema.goalDeposits.goalId, id)).run();
+    tx.delete(schema.goals).where(eq(schema.goals.id, id)).run();
+  });
+}
+
 export async function addDeposit(goalId: string, amountCents: Cents, occurredAt: number) {
   await db.insert(schema.goalDeposits).values({
     id: randomId(),

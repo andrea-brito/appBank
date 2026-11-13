@@ -14,10 +14,12 @@ import {
 
 import { createGoalUseCase, updateGoalUseCase } from '@/application/manageGoals';
 import { goBack } from '@/components/HeaderCancel';
-import { getGoal } from '@/data/goalRepository';
+import { deleteGoal, getGoal } from '@/data/goalRepository';
 import { CATEGORY_COLORS, GOAL_ICONS } from '@/domain/category';
-import { centsToInput, formatDateBR, parseDateBR } from '@/domain/dates';
+import { centsToInput, formatDateBR, maskDateInput, parseDateBR } from '@/domain/dates';
 import { parseGoalPeriod } from '@/domain/goal';
+import { maskCurrencyInput } from '@/domain/money';
+import { TEXT_MAX } from '@/domain/types';
 
 // Presets fill the end date from the start date; the field stays editable.
 const DEADLINES: { label: string; months: number | null }[] = [
@@ -100,6 +102,27 @@ export default function GoalFormScreen() {
     }
   }
 
+  function handleDelete() {
+    if (!editingId) return;
+    Alert.alert(
+      'Excluir meta',
+      `Excluir "${name.trim() || 'esta meta'}" e todo o histórico de depósitos dela? Não dá para desfazer. ` +
+        'Se quiser só tirá-la da lista e manter o histórico, use "Arquivar" na tela da meta.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => {
+            deleteGoal(editingId)
+              .then(() => goBack('/goals'))
+              .catch((e) => Alert.alert('Não foi possível excluir', e instanceof Error ? e.message : 'Erro'));
+          },
+        },
+      ],
+    );
+  }
+
   const title = editingId ? 'Editar meta' : 'Nova meta';
 
   if (!loaded) {
@@ -125,7 +148,7 @@ export default function GoalFormScreen() {
           onChangeText={setName}
           placeholder="Ex: Viagem para a praia"
           autoFocus={!editingId}
-          maxLength={80}
+          maxLength={TEXT_MAX}
           accessibilityLabel="Nome da meta"
         />
       </View>
@@ -134,9 +157,9 @@ export default function GoalFormScreen() {
       <TextInput
         style={styles.amountInput}
         value={targetText}
-        onChangeText={setTargetText}
+        onChangeText={(t) => setTargetText(maskCurrencyInput(t))}
         placeholder="5.000,00"
-        keyboardType="decimal-pad"
+        keyboardType="number-pad"
         accessibilityLabel="Valor-alvo"
       />
 
@@ -185,9 +208,9 @@ export default function GoalFormScreen() {
           <TextInput
             style={styles.input}
             value={startText}
-            onChangeText={setStartText}
+            onChangeText={(t) => setStartText(maskDateInput(t))}
             placeholder="dd/mm/aaaa"
-            keyboardType="numbers-and-punctuation"
+            keyboardType="number-pad"
             maxLength={10}
             accessibilityLabel="Data de início, dia barra mês barra ano"
           />
@@ -197,9 +220,9 @@ export default function GoalFormScreen() {
           <TextInput
             style={styles.input}
             value={endText}
-            onChangeText={setEndText}
+            onChangeText={(t) => setEndText(maskDateInput(t))}
             placeholder="dd/mm/aaaa"
-            keyboardType="numbers-and-punctuation"
+            keyboardType="number-pad"
             maxLength={10}
             accessibilityLabel="Data final, dia barra mês barra ano. Vazio para sem prazo"
           />
@@ -229,6 +252,12 @@ export default function GoalFormScreen() {
           {saving ? 'Salvando…' : editingId ? 'Salvar alterações' : 'Criar meta'}
         </Text>
       </Pressable>
+
+      {editingId && (
+        <Pressable style={styles.deleteButton} onPress={handleDelete} disabled={saving} accessibilityRole="button">
+          <Text style={styles.deleteText}>Excluir meta</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -288,4 +317,6 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.6 },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  deleteButton: { padding: 16, alignItems: 'center', borderRadius: 12, borderWidth: 1.5, borderColor: '#fecaca', marginTop: 8 },
+  deleteText: { color: '#b91c1c', fontSize: 15, fontWeight: '700' },
 });

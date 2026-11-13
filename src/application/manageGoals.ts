@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { addDeposit, createGoal, getGoal, updateGoal } from '@/data/goalRepository';
 import { isSingleEmoji } from '@/domain/category';
 import { isValidCents, parseToCents } from '@/domain/money';
+import { TEXT_MAX } from '@/domain/types';
 
 const createGoalSchema = z.object({
-  name: z.string().trim().min(1, 'Dê um nome à meta').max(80),
+  name: z.string().trim().min(1, 'Dê um nome à meta').max(TEXT_MAX, `Nome com no máximo ${TEXT_MAX} caracteres.`),
   targetText: z.string().min(1, 'Informe o valor-alvo'),
   icon: z.string().trim().refine(isSingleEmoji, 'Escolha um emoji para o ícone.').default('🎯'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida.').default('#6366f1'),
