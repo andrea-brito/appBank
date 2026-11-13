@@ -1,19 +1,20 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 /**
- * "Cancelar" for modal screens. On the web (and the iPhone home-screen app)
- * there is no browser back button, and after a reload there is no history to
- * go back to, so fall back to the dashboard.
+ * Leave a pushed/modal screen. On the web (and the iPhone home-screen app)
+ * a reload leaves no history, so router.back() would silently do nothing:
+ * the save worked but the screen stayed. Fall back to a tab instead.
  */
+export function goBack(fallback: Href = '/') {
+  if (router.canGoBack()) router.back();
+  else router.replace(fallback);
+}
+
+/** "Cancelar"/"Voltar" header button for non-tab screens. */
 export function HeaderCancel({ label = 'Cancelar' }: { label?: string }) {
   return (
-    <Pressable
-      onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-      accessibilityRole="button"
-      hitSlop={12}
-      style={styles.button}
-    >
+    <Pressable onPress={() => goBack()} accessibilityRole="button" hitSlop={12} style={styles.button}>
       <Text style={styles.text}>{label}</Text>
     </Pressable>
   );

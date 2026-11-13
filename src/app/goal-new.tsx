@@ -1,5 +1,5 @@
 import { addMonths } from 'date-fns';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { createGoalUseCase, updateGoalUseCase } from '@/application/manageGoals';
+import { goBack } from '@/components/HeaderCancel';
 import { getGoal } from '@/data/goalRepository';
 import { CATEGORY_COLORS, GOAL_ICONS } from '@/domain/category';
 import { centsToInput, formatDateBR, parseDateBR } from '@/domain/dates';
@@ -91,7 +92,7 @@ export default function GoalFormScreen() {
       const input = { name, targetText, icon, color, startAt, endAt };
       if (editingId) await updateGoalUseCase(editingId, input);
       else await createGoalUseCase(input);
-      router.back();
+      goBack('/goals'); // always leaves the form, even after a reload
     } catch (e) {
       Alert.alert('Não foi possível salvar', e instanceof Error ? e.message : 'Erro desconhecido');
     } finally {

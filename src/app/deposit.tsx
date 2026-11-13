@@ -1,8 +1,9 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { addDepositUseCase } from '@/application/manageGoals';
+import { goBack } from '@/components/HeaderCancel';
 import { archiveGoal } from '@/data/goalRepository';
 
 export default function DepositScreen() {
@@ -16,7 +17,7 @@ export default function DepositScreen() {
     try {
       const text = sign === -1 ? `-${amountText}` : amountText;
       await addDepositUseCase({ goalId, amountText: text });
-      router.back();
+      goBack('/goals');
     } catch (e) {
       Alert.alert('Não foi possível registrar', e instanceof Error ? e.message : 'Erro');
     } finally {
@@ -33,7 +34,7 @@ export default function DepositScreen() {
         style: 'destructive',
         onPress: async () => {
           await archiveGoal(goalId);
-          router.back();
+          goBack('/goals');
         },
       },
     ]);

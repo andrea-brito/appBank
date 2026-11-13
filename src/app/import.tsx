@@ -1,5 +1,4 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
@@ -18,6 +17,7 @@ import {
   type ParsedDocument,
 } from '@/application/importFromDocument';
 import { importOfx } from '@/application/importOfx';
+import { goBack } from '@/components/HeaderCancel';
 import { categoriesQuery } from '@/data/transactionRepository';
 import { formatBRL, parseToCents } from '@/domain/money';
 import { pickAndReadOfx } from '@/data/ofxFile';
@@ -47,7 +47,7 @@ export default function ImportScreen() {
         'Extrato importado',
         `${found} transações lidas. ${inserted} novas adicionadas` +
           (found - inserted > 0 ? `, ${found - inserted} já existiam.` : '.'),
-        [{ text: 'OK', onPress: () => router.back() }],
+        [{ text: 'OK', onPress: () => goBack() }],
       );
     } catch (e) {
       Alert.alert('Não foi possível importar', e instanceof Error ? e.message : 'Erro');
@@ -80,7 +80,7 @@ export default function ImportScreen() {
         occurredAt: parsed?.occurredAt ?? Date.now(),
         source: mode,
       });
-      router.back();
+      goBack();
     } catch (e) {
       Alert.alert('Não foi possível salvar', e instanceof Error ? e.message : 'Erro');
     } finally {

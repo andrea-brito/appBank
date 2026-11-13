@@ -15,6 +15,7 @@ import {
 
 import { addExpense } from '@/application/addExpense';
 import { editTransaction } from '@/application/editTransaction';
+import { goBack } from '@/components/HeaderCancel';
 import {
   categoriesQuery,
   deleteTransactionOrPurchase,
@@ -117,7 +118,7 @@ export default function AddScreen() {
           installments: parcelled ? { count, startNextMonth } : null,
         });
       }
-      router.back();
+      goBack();
     } catch (e) {
       Alert.alert('Não foi possível salvar', e instanceof Error ? e.message : 'Erro desconhecido');
     } finally {
@@ -137,7 +138,7 @@ export default function AddScreen() {
         style: 'destructive',
         onPress: () => {
           deleteTransactionOrPurchase(original)
-            .then(() => router.back())
+            .then(() => goBack())
             .catch((e) => Alert.alert('Não foi possível excluir', e instanceof Error ? e.message : 'Erro'));
         },
       },
