@@ -22,7 +22,7 @@ import {
   getTransaction,
 } from '@/data/transactionRepository';
 import type { TransactionRow } from '@/data/db/schema';
-import { centsToInput, formatDateBR, parseDateBR } from '@/domain/dates';
+import { centsToInput, formatDateBR, maskDateInput, parseDateBR } from '@/domain/dates';
 import {
   isValidInstallmentCount,
   MAX_INSTALLMENTS,
@@ -30,8 +30,8 @@ import {
   parseInstallment,
   splitInstallments,
 } from '@/domain/installments';
-import { formatBRL, isValidCents, parseToCents } from '@/domain/money';
-import type { TransactionKind } from '@/domain/types';
+import { formatBRL, isValidCents, maskCurrencyInput, parseToCents } from '@/domain/money';
+import { TEXT_MAX, type TransactionKind } from '@/domain/types';
 
 /** New entry, or edit when opened with ?id=<transaction id>. */
 export default function AddScreen() {
@@ -199,9 +199,9 @@ export default function AddScreen() {
       <TextInput
         style={styles.amountInput}
         value={amountText}
-        onChangeText={setAmountText}
+        onChangeText={(t) => setAmountText(maskCurrencyInput(t))}
         placeholder="0,00"
-        keyboardType="decimal-pad"
+        keyboardType="number-pad"
         autoFocus={!editingId}
         accessibilityLabel="Valor"
       />
@@ -254,9 +254,9 @@ export default function AddScreen() {
       <TextInput
         style={styles.input}
         value={dateText}
-        onChangeText={setDateText}
+        onChangeText={(t) => setDateText(maskDateInput(t))}
         placeholder="dd/mm/aaaa"
-        keyboardType="numbers-and-punctuation"
+        keyboardType="number-pad"
         maxLength={10}
         accessibilityLabel="Data, no formato dia barra mês barra ano"
       />
@@ -267,7 +267,7 @@ export default function AddScreen() {
         value={description}
         onChangeText={setDescription}
         placeholder="Ex: Mercado, Uber, Salário"
-        maxLength={130}
+        maxLength={TEXT_MAX}
         accessibilityLabel="Descrição"
       />
 

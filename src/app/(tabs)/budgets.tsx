@@ -16,7 +16,7 @@ import { setBudgetUseCase } from '@/application/setBudget';
 import { ProgressBar } from '@/components/ProgressBar';
 import { db, schema } from '@/data/db/client';
 import { budgetStatus } from '@/domain/budgetStatus';
-import { formatBRL } from '@/domain/money';
+import { formatBRL, formatCentsInput, maskCurrencyInput } from '@/domain/money';
 import { currentMonth } from '@/domain/period';
 
 export default function BudgetsScreen() {
@@ -98,7 +98,7 @@ function BudgetRow({
   level: 'none' | 'ok' | 'warning' | 'over';
 }) {
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(budget != null ? (budget / 100).toFixed(2).replace('.', ',') : '');
+  const [text, setText] = useState(budget != null ? formatCentsInput(budget) : '');
 
   async function save() {
     try {
@@ -148,9 +148,9 @@ function BudgetRow({
           <TextInput
             style={styles.editInput}
             value={text}
-            onChangeText={setText}
+            onChangeText={(t) => setText(maskCurrencyInput(t))}
             placeholder="0,00 (vazio = remover)"
-            keyboardType="decimal-pad"
+            keyboardType="number-pad"
             autoFocus
           />
           <Pressable style={styles.saveBtn} onPress={save}>

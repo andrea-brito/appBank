@@ -19,7 +19,8 @@ import {
 import { importOfx } from '@/application/importOfx';
 import { goBack } from '@/components/HeaderCancel';
 import { categoriesQuery } from '@/data/transactionRepository';
-import { formatBRL, parseToCents } from '@/domain/money';
+import { formatBRL, formatCentsInput, maskCurrencyInput, parseToCents } from '@/domain/money';
+import { TEXT_MAX } from '@/domain/types';
 import { pickAndReadOfx } from '@/data/ofxFile';
 
 type Mode = 'boleto' | 'pix' | 'ofx';
@@ -61,7 +62,7 @@ export default function ImportScreen() {
       const result = mode === 'boleto' ? parseBoletoLine(raw) : parsePixText(raw);
       setParsed(result);
       setAmountText(
-        result.amountCents != null ? (result.amountCents / 100).toFixed(2).replace('.', ',') : '',
+        result.amountCents != null ? formatCentsInput(result.amountCents) : '',
       );
       setDescription(result.description ?? '');
     } catch (e) {
@@ -165,8 +166,8 @@ export default function ImportScreen() {
           <TextInput
             style={styles.amountInput}
             value={amountText}
-            onChangeText={setAmountText}
-            keyboardType="decimal-pad"
+            onChangeText={(t) => setAmountText(maskCurrencyInput(t))}
+            keyboardType="number-pad"
             placeholder="0,00"
           />
           {amountText !== '' && (
@@ -178,7 +179,7 @@ export default function ImportScreen() {
             style={styles.input}
             value={description}
             onChangeText={setDescription}
-            maxLength={140}
+            maxLength={TEXT_MAX}
           />
 
           <Text style={styles.label}>Categoria</Text>

@@ -19,7 +19,13 @@ export function parseDateBR(text: string): number | null {
   return d.getTime();
 }
 
-/** Cents as the user types them back: 123456 -> "1234,56". Integer math only. */
-export function centsToInput(cents: number): string {
-  return `${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')}`;
+/** Date input mask: only digits are kept and slashes added, "05032026" -> "05/03/2026". */
+export function maskDateInput(text: string): string {
+  const d = text.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 }
+
+/** Cents prefilled into a (masked) money input: 123456 -> "1.234,56". */
+export { formatCentsInput as centsToInput } from './money';

@@ -10,13 +10,14 @@ import {
   splitInstallments,
 } from '@/domain/installments';
 import { isValidCents, parseToCents } from '@/domain/money';
+import { TEXT_MAX } from '@/domain/types';
 
 // Trust boundary: everything from the UI is validated here before it touches
 // the DB. The amount arrives as the raw string the user typed.
 const rawInput = z.object({
   amountText: z.string().min(1, 'Informe um valor'),
   kind: z.enum(['expense', 'income']),
-  description: z.string().max(140).default(''),
+  description: z.string().max(TEXT_MAX, `Descrição com no máximo ${TEXT_MAX} caracteres.`).default(''),
   categoryId: z.string().nullable().default(null),
   occurredAt: z.number().int().positive().default(() => Date.now()),
   source: z.enum(['manual', 'ofx', 'openfinance', 'boleto', 'pix']).default('manual'),

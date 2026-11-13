@@ -4,6 +4,7 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import { addDepositUseCase } from '@/application/manageGoals';
 import { goBack } from '@/components/HeaderCancel';
+import { maskCurrencyInput } from '@/domain/money';
 import { archiveGoal } from '@/data/goalRepository';
 
 export default function DepositScreen() {
@@ -46,9 +47,9 @@ export default function DepositScreen() {
       <TextInput
         style={styles.amountInput}
         value={amountText}
-        onChangeText={setAmountText}
+        onChangeText={(t) => setAmountText(maskCurrencyInput(t))}
         placeholder="100,00"
-        keyboardType="decimal-pad"
+        keyboardType="number-pad"
         autoFocus
       />
 

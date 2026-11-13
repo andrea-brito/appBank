@@ -42,6 +42,26 @@ export function formatBRL(cents: Cents): string {
   });
 }
 
+// R$ 99.999.999.999,99: far above any personal amount, well inside Number's exact range.
+const MAX_INPUT_DIGITS = 13;
+
+/** Integer cents as the money inputs show them: 123456 -> "1.234,56". */
+export function formatCentsInput(cents: Cents): string {
+  const whole = Math.floor(cents / CENTS_PER_UNIT);
+  const frac = String(cents % CENTS_PER_UNIT).padStart(2, '0');
+  return `${String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${frac}`;
+}
+
+/**
+ * Bank-app style mask for money inputs: only digits are kept and read as
+ * cents, so typing 1 2 3 4 5 shows 0,01 -> 0,12 -> 1,23 -> 12,34 -> 123,45.
+ * No dot/comma to type on the phone keyboard. Empty or zero -> '' (placeholder).
+ */
+export function maskCurrencyInput(text: string): string {
+  const digits = text.replace(/\D/g, '').replace(/^0+/, '').slice(0, MAX_INPUT_DIGITS);
+  return digits === '' ? '' : formatCentsInput(Number(digits));
+}
+
 export function isValidCents(cents: Cents): boolean {
   return Number.isInteger(cents) && Number.isFinite(cents);
 }

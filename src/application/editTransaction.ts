@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { getTransaction, updatePurchase, updateTransaction } from '@/data/transactionRepository';
 import { parseInstallment } from '@/domain/installments';
 import { isValidCents, parseToCents } from '@/domain/money';
+import { TEXT_MAX } from '@/domain/types';
 
 // Trust boundary: same validation as adding.
 const rawInput = z.object({
   id: z.string().min(1),
   amountText: z.string().min(1, 'Informe um valor'),
   kind: z.enum(['expense', 'income']),
-  description: z.string().max(140).default(''),
+  description: z.string().max(TEXT_MAX, `Descrição com no máximo ${TEXT_MAX} caracteres.`).default(''),
   categoryId: z.string().nullable().default(null),
   occurredAt: z.number().int().positive(),
 });

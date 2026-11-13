@@ -2,6 +2,9 @@ import type { Cents } from './money';
 
 export type TransactionKind = 'expense' | 'income';
 
+/** Max length of free-text fields (descriptions, goal names). */
+export const TEXT_MAX = 250;
+
 /** Where a transaction came from. The pluggable-source seam: manual and OFX
  *  today, 'openfinance' reserved for the Pluggy/Belvo phase. */
 export type TransactionSourceKind = 'manual' | 'ofx' | 'openfinance' | 'boleto' | 'pix';
