@@ -1,478 +1,336 @@
-# Arquitetura do appBank
+# Arquitetura do appBank (versão web)
 
-Este documento explica **como o app é organizado e por quê**. Para rodar o projeto, veja o [README](../README.md).
+Este documento explica **como a aplicação é organizada e por quê**. Para rodar, veja o [README](../README.md). Para riscos e melhorias de segurança, veja [`SECURITY.md`](SECURITY.md).
+
+Esta é a documentação da branch `feature/web-pwa`, a versão publicada na Vercel. A versão nativa original (local-first com SQLCipher e Face ID) está na branch `main`. As diferenças estão na [seção 12](#12-web-e-nativo).
 
 ## Sumário
 
 1. [Princípios](#1-princípios)
 2. [Visão geral](#2-visão-geral)
 3. [Camadas e regras de dependência](#3-camadas-e-regras-de-dependência)
-4. [Boot do app](#4-boot-do-app)
+4. [Boot](#4-boot)
 5. [Segurança](#5-segurança)
-6. [Modelo de dados](#6-modelo-de-dados)
-7. [Dinheiro](#7-dinheiro)
-8. [Regras de negócio](#8-regras-de-negócio)
-9. [Importações](#9-importações)
-10. [Navegação](#10-navegação)
-11. [Estratégia de testes](#11-estratégia-de-testes)
-12. [Decisões de projeto](#12-decisões-de-projeto)
-13. [Dívida técnica e riscos](#13-dívida-técnica-e-riscos)
-14. [Como estender](#14-como-estender)
-15. [Backup](#15-backup)
+6. [Sincronização](#6-sincronização)
+7. [Modelo de dados](#7-modelo-de-dados)
+8. [Dinheiro e entradas](#8-dinheiro-e-entradas)
+9. [Regras de negócio](#9-regras-de-negócio)
+10. [Importações](#10-importações)
+11. [Navegação](#11-navegação)
+12. [Web e nativo](#12-web-e-nativo)
+13. [Estratégia de testes](#13-estratégia-de-testes)
+14. [Decisões de projeto](#14-decisões-de-projeto)
+15. [Backup em arquivo](#15-backup-em-arquivo)
+16. [Dívida técnica e riscos](#16-dívida-técnica-e-riscos)
+17. [Como estender](#17-como-estender)
 
 ## 1. Princípios
 
-- **Local-first.** Os dados ficam no aparelho. Não há servidor, login nem telemetria. A única saída é o arquivo de backup, sempre cifrado e por ação explícita do usuário.
-- **Seguro por padrão.** Sem criptografia ativa, o app se recusa a abrir (falha fechada).
-- **Dinheiro é inteiro.** Valores são centavos inteiros; `float` só aparece na formatação.
-- **Regras puras, I/O nas bordas.** A lógica de negócio não toca banco, rede nem UI.
-- **Validar na fronteira.** Tudo que vem da UI passa por `zod` antes de chegar ao banco.
+- **Criptografia de ponta a ponta.** O servidor guarda e devolve uma linha cifrada. Chaves e texto em claro só existem na memória do navegador.
+- **Uma fonte de verdade por conta.** O banco inteiro é um único blob cifrado no Supabase, com número de versão. Qualquer aparelho com a senha abre o mesmo estado.
+- **Nada sensível no aparelho.** Não há sessão, chave nem dado salvo em `localStorage`, `IndexedDB` ou OPFS. A única exceção é o último e-mail usado.
+- **Dinheiro é inteiro.** Centavos inteiros; `float` só na formatação.
+- **Regras puras, I/O nas bordas.** `domain` não toca banco, rede nem UI.
+- **Validar na fronteira.** Entradas da UI passam por `zod` em `application`.
 
 ## 2. Visão geral
 
 ```mermaid
 flowchart LR
-  UI["app/ (telas, expo-router)"] --> APP["application/ (casos de uso + zod)"]
+  UI["app/ (telas)"] --> APP["application/ (casos de uso + zod)"]
   UI --> DATA
-  APP --> DOMAIN["domain/ (regras puras)"]
+  APP --> DOMAIN["domain/ (regras puras, vault.ts)"]
   APP --> DATA["data/ (drizzle, repositórios)"]
-  DATA --> DB[("SQLite + SQLCipher")]
-  DATA --> KEY["SecureStore (chave)"]
-  UI --> LOCK["LockGate (biometria)"]
-  DOMAIN -.->|"nenhuma dependência"| X(( ))
+  DATA --> MEM[("SQLite em memória (WASM)")]
+  LOCK["LockGate.web (e-mail + senha)"] --> CLIENT["db/client.web.ts"]
+  CLIENT --> MEM
+  CLIENT -->|"blob cifrado"| SB[("Supabase: vaults (RLS)")]
+  CLIENT -->|"login derivado"| AUTH["Supabase Auth"]
 ```
 
-Observação: as telas leem direto da camada `data` com `useLiveQuery` (drizzle), para que as listas reativas atualizem sozinhas quando o banco muda. As escritas passam por `application`, com uma exceção: `deposit.tsx` chama `archiveGoal` (de `data/goalRepository`) diretamente, sem validação. Isso está listado na [dívida técnica](#13-dívida-técnica-e-riscos).
+As telas leem direto de `data` com `useLiveQuery` (drizzle), que reage às mudanças do banco. As escritas passam por `application`. Exceções que escrevem direto no repositório: `archiveGoal` e `deleteGoal` nas telas de meta, `deleteTransactionOrPurchase` na edição de lançamento e o CRUD de categorias, cuja validação fica em `domain/category.ts`.
 
 ## 3. Camadas e regras de dependência
 
 | Camada | Pasta | Responsabilidade | Pode importar |
 | --- | --- | --- | --- |
-| Domínio | `src/domain` | Regras de negócio puras: dinheiro, orçamento, metas, alertas, conquistas, parsers de boleto/OFX/PIX. Sem I/O. | Só `domain` e libs puras (`date-fns`) |
-| Dados | `src/data` | Schema, conexão, migrations, repositórios, auth biométrica, seed, leitura de arquivo OFX. | `domain` |
-| Aplicação | `src/application` | Casos de uso: validam entrada (`zod`), convertem texto em centavos e chamam repositórios. | `domain`, `data` |
-| Apresentação | `src/app`, `src/components` | Telas, navegação, estado de UI. | todas as anteriores |
+| Domínio | `src/domain` | Dinheiro, datas, parcelas, histórico, categorias, metas, orçamento, alertas, conquistas, parsers, formato e criptografia do backup e do cofre. Sem I/O. | `domain`, libs puras (`date-fns`, `@noble/*`) |
+| Dados | `src/data` | Schema, conexão, migrations, repositórios, seed, arquivos, sessão. | `domain` |
+| Aplicação | `src/application` | Casos de uso: validam (`zod`), convertem texto em centavos e chamam repositórios. | `domain`, `data` |
+| Apresentação | `src/app`, `src/components` | Telas, navegação, estado de UI. | todas |
 
-**Regra:** a seta só aponta para dentro. `domain` nunca importa `data`, `application` ou `app`. É isso que permite testar a regra de negócio com `npx tsx`, sem emulador.
+A seta só aponta para dentro. É isso que permite testar as regras com `npx tsx`, sem navegador.
 
 ### Mapa de arquivos
 
 ```
 src/domain/
-  money.ts            Cents, parseToCents, sumCents, formatBRL, isValidCents
-  types.ts            Category, Transaction, TransactionKind, TransactionSourceKind
-  period.ts           currentMonth, previousMonths
-  budgetStatus.ts     none | ok | warning | over
-  goal.ts             goalProgress (ratio, restante, meta mensal)
-  goalAlert.ts        alertas e marcos de progresso
-  savingsSuggestion.ts sugestão de economia mensal
-  achievements.ts     5 selos derivados
-  boleto.ts           linha digitável -> valor e vencimento
-  ofx.ts              parser de extrato OFX
-  pixReceipt.ts       heurística de comprovante PIX
+  money.ts            Cents, parseToCents, formatBRL, formatCentsInput, maskCurrencyInput
+  dates.ts            formatDateBR, parseDateBR, maskDateInput, centsToInput
+  types.ts            tipos, TEXT_MAX = 250
+  installments.ts     splitInstallments, installmentDates, rótulo "(i/n)", irmãs de uma compra
+  monthlyHistory.ts   meses passados e futuros, anos, availableCents, gasto por categoria
+  category.ts         validação, emojis e cores sugeridos, isSingleEmoji
+  goal.ts             goalProgress, parseGoalPeriod
+  vault.ts            cofre web: deriveAccount, seal/open, chave de recuperação
+  backupCrypto.ts     envelope do arquivo de backup (scrypt + XChaCha20-Poly1305)
+  backup.ts           formato e validação do conteúdo do backup
+  budgetStatus.ts, goalAlert.ts, savingsSuggestion.ts, achievements.ts, period.ts
+  boleto.ts, ofx.ts, pixReceipt.ts
 src/data/
+  db/client.web.ts    SQLite em memória + Supabase + cofre + autosave + sync + sair
+  db/client.ts        versão nativa (SQLCipher)
   db/schema.ts        tabelas (drizzle)
-  db/client.ts        conexão + initSecureDb
-  db/secureKey.ts     geração e guarda da chave
-  db/migrations/      .sql + journal + migrations.js
-  auth.ts             biometria / senha do aparelho
-  seed.ts             categorias padrão
-  ofxFile.ts          seletor de arquivo OFX
-  transactionRepository.ts, goalRepository.ts, analyticsRepository.ts
-src/application/
-  addExpense.ts, setBudget.ts, manageGoals.ts, importOfx.ts,
-  importFromDocument.ts, savingsInsight.ts, achievementsInsight.ts
+  transactionRepository.ts  lançamentos, parcelas, edição, exclusão de compra
+  categoryRepository.ts     criar, editar, excluir categoria
+  goalRepository.ts         metas e depósitos
+  session.ts / session.web.ts   canSignOut + signOut
+  seed.ts             categorias padrão (só em banco vazio)
+  backupFile.web.ts, ofxFile.web.ts, webFiles.ts
+src/components/
+  LockGate.web.tsx    entrar, criar conta, recuperar, rebloquear, puxar mudanças
+  HeaderCancel.tsx    goBack(): volta ou cai na aba certa
+  PasswordInput.tsx   campo de senha com mostrar/ocultar
+src/web/memoryOnlyVFS.js   troca o VFS OPFS do worker do expo-sqlite por memória
 ```
 
-## 4. Boot do app
-
-A ordem importa: nenhuma consulta pode rodar antes do banco estar destravado.
+## 4. Boot
 
 ```mermaid
 sequenceDiagram
   participant R as RootLayout
-  participant C as db/client
-  participant K as SecureStore
-  participant L as LockGate
+  participant C as client.web
+  participant L as LockGate.web
+  participant S as Supabase
   participant A as AppContent
-  R->>C: initSecureDb()
-  C->>K: getOrCreateDbKey()
-  C->>C: PRAGMA key
-  C->>C: PRAGMA cipher_version (null = erro)
-  C->>C: SELECT count(*) FROM sqlite_master
-  C-->>R: pronto
-  R->>L: renderiza LockGate
-  L->>L: authenticate() (biometria ou senha)
+  R->>C: initSecureDb() abre ":memory:" (async)
+  R->>L: tela de entrar
+  L->>C: unlockVault(email, senha)
+  C->>C: deriveAccount (scrypt + HKDF)
+  C->>S: signInWithPassword(email, senhaDeLogin)
+  C->>S: select vaults
+  alt já existe
+    C->>C: open(KEK, wrap_pass) -> DEK; open(DEK, data) -> SQLite
+    C->>C: deserialize + backup para o banco em memória
+  else conta nova
+    C->>S: insert (data, wrap_pass, wrap_recovery, version 1)
+    C-->>L: chave de recuperação (mostrada uma vez)
+  end
+  C->>C: startAutosave()
   L->>A: libera
-  A->>A: useMigrations
-  A->>A: seedDefaultCategories
-  A->>A: Stack de rotas
+  A->>A: useMigrations + seed (só em banco vazio)
 ```
 
-Estados de tela durante o boot (`src/app/_layout.tsx`):
-
-1. "Protegendo seus dados…" enquanto `initSecureDb` roda.
-2. Tela de erro com 🔒 se a criptografia falhar.
-3. `LockGate` pede biometria.
-4. "Preparando seus dados…" durante migrations e seed.
-5. "Erro ao preparar o banco" se a migration falhar.
+Por que o banco abre de forma assíncrona antes de tudo: o drizzle usa a API **síncrona** do `expo-sqlite`. Na web, cada chamada síncrona espera o worker com um tempo limite curto, e a primeira (subir o worker e carregar o WASM) estouraria esse tempo. Abrir com `openDatabaseAsync` primeiro resolve.
 
 ## 5. Segurança
 
-### Criptografia em repouso
+### Derivação de chaves (`domain/vault.ts`)
 
-- O plugin `expo-sqlite` com `useSQLCipher: true` compila o SQLCipher no binário.
-- `secureKey.ts` gera **32 bytes aleatórios** (`expo-crypto`), grava em hexadecimal no `expo-secure-store` com `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e reutiliza nas próximas aberturas. A chave não é logada.
-- `initSecureDb` aplica `PRAGMA key`, confere `PRAGMA cipher_version` e faz uma leitura de `sqlite_master` para validar a chave.
+```
+salt   = SHA-256("appbank-account|" + email minúsculo)[0..16]
+master = scrypt(NFKC(senha), salt, N=2^15, r=8, p=1, 32 bytes)
+senhaDeLogin = hex(HKDF-SHA256(master, info="appbank-login-v1"))   -> Supabase Auth
+KEK          = HKDF-SHA256(master, info="appbank-kek-v1")          -> só em memória
+```
 
-### Falha fechada
+O sal vem do e-mail para ser conhecido **antes** do login, em qualquer aparelho. O Supabase recebe só a `senhaDeLogin`, da qual não se chega à KEK (HKDF com outro `info`).
 
-Se `PRAGMA cipher_version` não retornar nada, o SQLCipher não está no binário (típico do Expo Go). Nesse caso o `PRAGMA key` é ignorado em silêncio e os dados seriam gravados **em texto puro**. Por isso o app lança erro e não abre.
+### Envelope (cofre)
 
-### Bloqueio da interface
+| Blob | Conteúdo | Cifrado com |
+| --- | --- | --- |
+| `data` | o SQLite serializado | DEK (32 bytes aleatórios, nunca muda) |
+| `wrap_pass` | a DEK | KEK (da senha) |
+| `wrap_recovery` | a DEK | HKDF da chave de recuperação (16 bytes aleatórios) |
 
-`LockGate` chama `authenticate()` (`expo-local-authentication`) na abertura e **toda vez que o app volta do segundo plano** (`inactive`/`background` para `active`).
+- Cifra: **XChaCha20-Poly1305** com nonce aleatório de 24 bytes a cada gravação.
+- O tipo do blob (`data`, `wrap-pass`, `wrap-recovery`) entra como dado associado (AAD). Trocar um blob por outro falha.
+- Chave errada ou blob alterado **falha**, nunca devolve lixo.
 
-| Resultado | Comportamento |
-| --- | --- |
-| `success` | Desbloqueia. |
-| `failed` | Mantém bloqueado, mostra aviso e o botão "Desbloquear". |
-| `unavailable` | **Desbloqueia.** O aparelho não tem biometria ou senha cadastrada. |
+### Recuperação de senha
 
-O fallback para senha do aparelho está habilitado (`disableDeviceFallback: false`).
+1. "Esqueci a senha" chama `resetPasswordForEmail`, que envia o link do Supabase de volta para o app.
+2. O link abre a tela "Criar nova senha" (`#type=recovery`, lido antes do Supabase limpar a URL).
+3. A chave de recuperação abre `wrap_recovery` e devolve a DEK. A DEK é recifrada com a KEK da senha nova (`wrap_pass`), com trava de versão.
+4. `updateUser({ password: novaSenhaDeLogin })`.
 
-**Cobertura, não desmontagem.** Antes do primeiro desbloqueio, nenhuma tela é montada (nenhuma consulta roda). Depois dele, rebloquear **cobre** o app com uma camada opaca, em vez de desmontá-lo. Ao desmontar, a navegação voltava para a primeira aba e qualquer operação em andamento se perdia. Isso acontecia toda vez que um seletor de arquivo do sistema mandava o app para segundo plano no meio de um backup. Enquanto bloqueado, o conteúdo coberto fica oculto para leitores de tela e não recebe toques.
+Os dados **não** são recifrados: só a cópia da DEK. Exige as duas coisas, acesso ao e-mail **e** a chave. Quem tem só o e-mail não abre nada.
 
-### Pontos de atenção
+### Servidor (`supabase/schema.sql`)
 
-- `unavailable` libera o acesso. Num aparelho sem tela de bloqueio, qualquer pessoa abre o app. A proteção em repouso (SQLCipher) continua valendo, mas a chave é lida sem desafio.
-- Não há rotação de chave, e a chave do banco nunca sai do aparelho. Perdê-la (ou limpar os dados do app) torna o banco ilegível; os dados só voltam por um [backup](#15-backup).
-- O comportamento do SecureStore no Android não foi auditado neste projeto; o comentário no código fala em Keychain (iOS).
+- Tabela `vaults` com uma linha por usuário (`user_id` = `auth.uid()`).
+- **RLS:** política `own vault` para `authenticated`, com `using` e `with check` em `user_id = auth.uid()`.
+- `GRANT select, insert, update` só para `authenticated`. `delete` revogado. `anon` sem acesso (verificado: `permission denied`).
+- `data` limitado a 20 MB por `CHECK`.
 
-## 6. Modelo de dados
+### Navegador
+
+- **Sessão não persistida** (`persistSession: false`). Recarregar descarta chave e sessão.
+- **Rebloqueio:** página oculta por 1 minuto ou mais pede a senha de novo. O rebloqueio só confere a senha contra a KEK em memória, sem rede. É uma trava de interface: as chaves continuam em memória enquanto a aba existir.
+- **Sair:** salva o que estiver pendente (recusa se não conseguir), encerra a sessão local e recarrega a página.
+- **Cabeçalhos** (`vercel.json`): `COEP: require-corp` e `COOP: same-origin` (isolamento exigido pelo `SharedArrayBuffer`), `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`. A Vercel adiciona HSTS.
+- **Por que `require-corp` e não `credentialless`:** o Safari não suporta `credentialless`. A página fica sem isolamento, o `SharedArrayBuffer` não existe e toda consulta do banco falha. O app só carrega recursos próprios e fala com o Supabase via CORS, então `require-corp` funciona nos dois navegadores.
+
+## 6. Sincronização
+
+- **Autosave:** o `addDatabaseChangeListener` agenda a gravação 800 ms depois da última mudança. A gravação serializa o banco, cifra (`seal`) e faz `UPDATE ... WHERE version = <versão carregada>`, com `version + 1`.
+- **Trava otimista:** se o `UPDATE` não afetar nenhuma linha, outro aparelho salvou antes. O app avisa ("alterados em outro aparelho"), marca conflito e para de gravar. Não há mesclagem.
+- **Sem rede:** marca como pendente, tenta de novo a cada 10 s, avisa uma vez e pede confirmação para fechar a aba com algo pendente.
+- **Voltar ao app** (`syncFromServer`): ao reaparecer (volta rápida) ou depois de digitar a senha no rebloqueio, o app grava o pendente, busca a versão do servidor e, se for mais nova, carrega o banco novo e **remonta as telas** (chave do `Fragment` no `LockGate`). Carregar o banco assim não notifica as consultas vivas, por isso a remontagem.
+- **Por que isso existe:** o iPhone mantém a página viva por dias em segundo plano. Sem isso, o celular mostrava dados velhos e a próxima gravação dava conflito.
+
+## 7. Modelo de dados
+
+Dentro do SQLite (o mesmo nas duas versões):
 
 ```mermaid
 erDiagram
-  categories ||--o{ transactions : "categoria (SET NULL)"
-  goals ||--o{ goal_deposits : "depósitos (CASCADE)"
-  categories {
-    text id PK
-    text name
-    text icon
-    text color
-    text kind "expense | income"
-    int budget_cents "null = sem orçamento"
-  }
-  transactions {
-    text id PK
-    text category_id FK
-    int amount_cents "sempre > 0"
-    text kind "expense | income"
-    text description
-    int occurred_at "epoch ms"
-    text source "manual | ofx | openfinance | boleto | pix"
-    text external_id "chave de deduplicação"
-    int created_at
-  }
-  goals {
-    text id PK
-    text name
-    text icon
-    text color
-    int target_cents "> 0"
-    int start_at
-    int end_at "null = sem prazo"
-    int archived_at "null = ativa"
-    int created_at
-  }
-  goal_deposits {
-    text id PK
-    text goal_id FK
-    int amount_cents "negativo = retirada"
-    int occurred_at
-    int created_at
-  }
+  categories ||--o{ transactions : "categoria"
+  goals ||--o{ goal_deposits : "depósitos"
+  categories { text id PK; text name; text icon; text color; text kind; int budget_cents }
+  transactions { text id PK; text category_id FK; int amount_cents; text kind; text description; int occurred_at; text source; text external_id; int created_at }
+  goals { text id PK; text name; text icon; text color; int target_cents; int start_at; int end_at; int archived_at; int created_at }
+  goal_deposits { text id PK; text goal_id FK; int amount_cents; int occurred_at; int created_at }
 ```
 
-Índices: `idx_tx_occurred (occurred_at)`, `uq_tx_source_external (source, external_id)` único, `idx_goal_active (archived_at)`, `idx_deposit_goal (goal_id)`.
+No Supabase, só `vaults (user_id PK, version, data, wrap_pass, wrap_recovery, updated_at)`.
 
-Pontos que valem saber:
+- **Datas:** `integer` em ms, horário local. Datas digitadas são gravadas ao meio-dia.
+- **Parcelas** não têm tabela própria: são lançamentos com a descrição `"Base (i/n)"`, gravados num único `INSERT` com o mesmo `created_at`. "Mesma compra" = mesmo `created_at` + mesma base + mesmo `n` (`installmentSiblings`).
+- **Exclusões explícitas:** excluir categoria anula `category_id` dos lançamentos e excluir meta apaga os depósitos, numa transação síncrona. Não dependemos de `ON DELETE`, porque `PRAGMA foreign_keys` não é ativado.
+- **Seed:** as 7 categorias padrão só são inseridas se a tabela estiver vazia. Assim, uma categoria excluída não volta.
 
-- **Datas** são `integer` em milissegundos desde a época, em horário local do aparelho.
-- **Importação idempotente:** o índice único `(source, external_id)` mais `onConflictDoNothing` impede duplicar a mesma transação importada.
-- **Saldo de uma meta** = soma de `goal_deposits.amount_cents`. Não existe coluna "guardado"; ela seria redundante e poderia divergir.
-- **Conquistas** não têm tabela: são recalculadas a cada abertura da tela.
-- **IDs** são `Date.now()` em base 36 mais aleatório (`randomId`, duplicado em `transactionRepository.ts` e `goalRepository.ts`). Servem para unicidade local, não como token de segurança.
-- `source` aceita `openfinance`, mas nada no código grava esse valor hoje.
+## 8. Dinheiro e entradas
 
-### Migrations
+- `Cents` = inteiro. `parseToCents` aceita `R$ 1.234,56`, `1234,56` e `19.9`, montando os centavos com partes inteiras.
+- **Máscara de moeda** (`maskCurrencyInput`): só dígitos, lidos como centavos (`12345` → `123,45`). Até 13 dígitos. Zero vira campo vazio. Teclado `number-pad` (vira `inputmode=numeric` na web).
+- **Máscara de data** (`maskDateInput`): `05032026` → `05/03/2026`. `parseDateBR` rejeita datas inexistentes, como 31/02.
+- **Textos livres:** até `TEXT_MAX = 250` caracteres, conferido no campo (`maxLength`) e no `zod`. Exceção: nome de categoria, até 30 caracteres.
 
-Fluxo: editar `schema.ts` → `npx drizzle-kit generate` → commitar `.sql`, `_journal.json` e `migrations.js`. Em runtime, `useMigrations(db, migrations)` aplica o que falta. Os `.sql` entram no bundle como string por `babel-plugin-inline-import` (`babel.config.js`) e `sourceExts` do Metro (`metro.config.js`).
+## 9. Regras de negócio
 
-Se uma migration falhar no meio (por exemplo, o app foi fechado durante a primeira execução), o banco pode ficar com tabelas criadas e sem registro no journal. O erro aparece como `Failed to run the query 'CREATE TABLE ...'`. Veja o aviso no README antes de limpar dados.
+### Disponível (`availableCents`)
 
-## 7. Dinheiro
+`disponível = entradas − gastos − depósitos líquidos nas metas` do mês. Uma retirada, que é negativa, devolve o valor. É o "Disponível para gastar" do Resumo e o "Sobrou" do Histórico (mês, ano e detalhe). "Saídas" continua sendo só gasto, para orçamento e gastos por categoria não confundirem poupança com despesa.
 
-- Tipo: `Cents` = `number` inteiro. Nunca `float` em armazenamento nem soma.
-- `parseToCents(texto)` aceita `R$ 1.234,56`, `1234,56` e `19.9`. Remove símbolo e espaços, descarta separador de milhar (ponto seguido de 3 dígitos), troca vírgula decimal por ponto e monta os centavos **com partes inteiras**, sem multiplicar float por 100. Arredonda a terceira casa (meio para cima). Retorna `NaN` se inválido.
-- `sumCents` é soma inteira exata.
-- `formatBRL` é o único lugar com divisão por 100 (`toLocaleString('pt-BR', BRL)`).
-- No SQL, somas usam `coalesce(sum(...), 0)` sobre inteiros.
-- Limite prático: `Number.MAX_SAFE_INTEGER` centavos (cerca de 90 trilhões de reais). Irrelevante aqui.
+### Parcelas (`installments.ts`)
 
-## 8. Regras de negócio
+- De 2 a 48. `splitInstallments` dá parcelas inteiras que somam o total exato. O resto vai para a 1ª (R$ 100,00 / 3 = 33,34 + 33,33 + 33,33).
+- Mesmo dia em cada mês, ajustado no fim do mês (31/01 vira 28/02).
+- Na edição de uma parcela, descrição e categoria valem para a compra inteira, e valor e data só para aquela parcela. Excluir apaga todas.
+- O Resumo lista só até o fim do mês atual. O que cai em meses futuros aparece como "comprometido".
 
-### Lançamento (`addExpense`)
+### Histórico (`monthlyHistory.ts`)
 
-- `amountText` obrigatório; convertido por `parseToCents`; deve ser inteiro **maior que zero**.
-- `kind`: `expense` ou `income`. `description` até 140 caracteres, com `trim`.
-- `occurredAt` padrão: agora. `source` padrão: `manual`.
+- Meses passados: do mês atual até o mais antigo com dados, **sem buracos** (meses vazios aparecem zerados).
+- Meses futuros com lançamentos formam o "Já comprometido".
+- Ano: somas, média de gasto pelos meses do ano presentes no histórico, melhor e pior mês pelo disponível.
+- Gasto por categoria com porcentagem inteira, do maior para o menor.
 
-### Orçamento (`budgetStatus`)
+### Categorias (`category.ts`)
 
-Orçamento é por categoria, mensal (mês calendário), em `categories.budget_cents`.
+Nome de 1 a 30 caracteres, espaços colapsados e único por tipo (sem diferenciar maiúsculas). Ícone: exatamente **um** emoji (`Intl.Segmenter`, então 🏋️ e 👨‍👩‍👧 contam como um). Cor `#rrggbb`. O tipo não muda depois de criada.
 
-| Condição | Nível | Mensagem |
-| --- | --- | --- |
-| sem orçamento ou `<= 0` | `none` | nenhuma |
-| `gasto > orçamento` | `over` | "Você estourou o limite deste mês." |
-| `gasto * 100 >= orçamento * 70` | `warning` | "Você está chegando ao limite, cuidado." |
-| demais | `ok` | nenhuma |
+### Metas (`goal.ts`, `manageGoals.ts`)
 
-A comparação é feita em inteiros, para não haver erro de ponto flutuante exatamente no limiar de 70%. Gasto **igual** ao orçamento é `warning`, não `over`. `setBudget` aceita texto vazio para remover o orçamento e rejeita valores negativos.
+- Nome até 250 caracteres, alvo maior que zero, emoji único, cor válida.
+- `parseGoalPeriod`: início obrigatório, fim opcional (sem prazo), fim não pode ser antes do início.
+- `goalProgress`: restante, razão e meta mensal = `ceil(restante / meses de hoje até o fim, contando o atual)`. Conta a partir de **hoje**, não do início.
+- Depósito diferente de zero; negativo é retirada.
 
-### Metas (`goalProgress`)
+### Orçamento, alertas, sugestão e conquistas
 
-- `restante = max(0, alvo - guardado)`
-- `ratio = clamp(guardado / alvo, 0, 1)`; se `alvo <= 0`, `ratio = 1`
-- `concluída` quando `guardado >= alvo` e `alvo > 0`
-- Com prazo (`endAt`): `mesesRestantes = max(1, diferençaEmMesesCalendário(endAt, hoje) + 1)` e `metaMensal = ceil(restante / mesesRestantes)` (0 se concluída). O `+1` conta o mês corrente; o mínimo de 1 evita divisão por zero.
-- Criação: nome de 1 a 80 caracteres; alvo `> 0`; `endAt` não pode ser anterior a `startAt`.
-- Depósito: valor **diferente de zero**; negativo é retirada.
+Inalterados em relação ao nativo: `budgetStatus` (70% atenção, acima de 100% estourou, em inteiros), `goalAlerts` (marcos de 25, 50, 75 e 90%), `suggestSavings` (heurística de 3 meses) e `computeAchievements` (5 selos derivados). Atenção: a sugestão usa `entradas − gastos` e ainda não desconta as metas.
 
-### Alertas de meta (`goalAlerts`)
+## 10. Importações
 
-1. Meta concluída: "Meta concluída! 🎉" e para por aí.
-2. Marcos 25%, 50%, 75% e 90%: ao atingir qualquer um, mostra "Você está a X% da sua meta" (X = percentual real, arredondado para baixo).
-3. Nada guardado no mês: aviso de atenção. Com prazo, a mensagem pede um aporte para manter o prazo.
+Boleto (47 dígitos, fator de vencimento com reinício em 2025), PIX (heurística, com confirmação) e OFX (`FITID` para deduplicar, importa sem categoria). Na web, o arquivo OFX é lido com `<input type="file">` (`webFiles.ts`).
 
-### Sugestão de economia (`suggestSavings`)
-
-- Amostra: até 3 meses completos anteriores (`HISTORY_MONTHS = 3`).
-- `sobraMédia = round(Σ(entradas - saídas) / nMeses)`.
-- `folgaOrçamento = max(0, orçamentoTotal - despesaDoMêsAtual)`, só se houver orçamento.
-- `sugerido = max(0, round(max(0, sobraMédia) * 0,5) + round(folga * 0,5))`.
-- `lowConfidence` quando há menos de 2 meses de histórico.
-- Nunca sugere valor negativo. É uma heurística de apoio, e a interface deve deixar isso claro.
-
-### Conquistas (`computeAchievements`)
-
-| Id | Título | Regra |
-| --- | --- | --- |
-| `first-transaction` | Primeiro passo | 1 ou mais lançamentos |
-| `first-goal` | Sonhador | 1 ou mais metas criadas |
-| `goal-completed` | Objetivo alcançado | 1 ou mais metas concluídas |
-| `within-budget` | No controle | Existe orçamento e nenhuma categoria com orçamento está em `over` neste mês |
-| `saved-1k` | Cofrinho cheio | Total guardado `>= R$ 1.000,00` (100.000 centavos) |
-
-## 9. Importações
-
-Todas as importações passam por `src/application`, gravam com `source` correspondente e **não definem categoria**.
-
-### Boleto bancário (`parseBoleto`)
-
-- Entrada: linha digitável com **47 dígitos** (outros caracteres são ignorados). Começando com `8` (concessionária) é rejeitado.
-- A linha digitável é convertida no código de barras de 44 dígitos, descartando os dígitos verificadores dos três primeiros campos.
-- Valor: últimos 10 dígitos, já em centavos.
-- Vencimento: fator de 4 dígitos × 1 dia, a partir de **07/10/1997**. Fator `0000` significa sem vencimento (`null`).
-- **Reinício do fator:** depois de 9999 (21/02/2025) o fator volta a 1000, num ciclo de 9000 dias. Um fator entre 1000 e 9999 é, portanto, ambíguo (ex.: 1627 pode ser jul/2002 ou nov/2026). `parseBoleto(raw, now)` calcula as duas datas e escolhe a **mais próxima de `now`**, partindo da premissa de que um boleto é lido perto do vencimento. Fatores abaixo de 1000 só existem no primeiro ciclo. O parâmetro `now` é injetável para teste.
-- **Não valida** os dígitos verificadores.
-
-### PIX (`parsePixReceipt`)
-
-Heurística sobre texto colado. Valor: o **maior** `R$ x,xx` encontrado (comprovantes costumam trazer taxas menores). Data: primeira `dd/mm/aaaa` ou `dd/mm/aa`. Favorecido: texto após uma linha com "para", "destinat…", "recebedor" ou "favorecido", limitado a 80 caracteres. O usuário revisa antes de salvar.
-
-### OFX (`parseOfx`, `importOfx`)
-
-- Lê blocos `<STMTTRN>`; ignora os que não têm `TRNAMT` ou `DTPOSTED` válidos.
-- Valor negativo vira `expense` e positivo vira `income`, sempre guardado em módulo.
-- `FITID` é a chave de deduplicação; se ausente, usa uma chave sintética `data-valor-memo`.
-- Descrição: `MEMO`, senão `NAME`, senão "Importado".
-- Reimportar o mesmo arquivo não duplica: `importTransactions` retorna quantas linhas **de fato** entraram (contagem depois menos antes).
-
-## 10. Navegação
+## 11. Navegação
 
 | Rota | Arquivo | Tipo |
 | --- | --- | --- |
-| `/` | `(tabs)/index.tsx` | Aba Resumo |
+| `/` | `(tabs)/index.tsx` | Aba Resumo (com "Sair" na web) |
 | `/goals` | `(tabs)/goals.tsx` | Aba Metas |
-| `/budgets` | `(tabs)/budgets.tsx` | Aba Orçamento |
-| `/add` | `add.tsx` | Modal "Novo lançamento" |
-| `/goal-new` | `goal-new.tsx` | Modal "Nova meta" |
-| `/deposit` | `deposit.tsx` | Modal "Guardar na meta" (`goalId`) |
-| `/import` | `import.tsx` | Modal "Importar boleto / PIX" (+ OFX) |
-| `/achievements` | `achievements.tsx` | Tela "Conquistas" |
-| `/backup` | `backup.tsx` | Modal "Backup" (💾 no Resumo) |
+| `/history` | `(tabs)/history.tsx` | Aba Histórico (Meses / Anos, comprometido, link de backup) |
+| `/budgets` | `(tabs)/budgets.tsx` | Aba Orçamento (link para categorias) |
+| `/add` | `add.tsx` | Modal novo lançamento; `?id=` edita |
+| `/goal-new` | `goal-new.tsx` | Modal nova meta; `?id=` edita e exclui |
+| `/deposit` | `deposit.tsx` | Modal guardar/retirar e arquivar (`goalId`) |
+| `/month/[key]` | `month/[key].tsx` | Detalhe do mês (`2026-11`) |
+| `/categories` | `categories.tsx` | Gerenciar categorias (`?kind=` abre criando) |
+| `/import`, `/backup`, `/achievements` | | Importar, backup, conquistas |
 
-Esquema de deep link: `appbank://`. O `_layout.tsx` raiz só monta a pilha depois de banco destravado, desbloqueio biométrico, migrations e seed.
+- **Saída sempre possível:** toda tela fora das abas tem "Cancelar" ou "‹ Voltar". Depois de salvar, `goBack(fallback)` volta para a tela anterior ou, sem histórico (página recarregada, atalho do iPhone), para a aba certa. Antes, `router.back()` não fazia nada nesse caso e a tela ficava aberta.
+- **Vercel:** `cleanUrls` serve `/history` como `history.html`. A reescrita `/month/:key → /month/[key]` permite abrir o detalhe do mês direto pela URL.
 
-## 11. Estratégia de testes
+## 12. Web e nativo
 
-Os testes cobrem a camada `domain`, onde está o risco financeiro. São arquivos executáveis com `assert` simples, rodados por `npx tsx`, sem framework, fixtures nem configuração.
+| Peça | Nativo (`main`) | Web |
+| --- | --- | --- |
+| Banco | SQLCipher, arquivo no aparelho | SQLite WASM em `:memory:`, persistido como blob cifrado |
+| Chave | 32 bytes no Keychain/Keystore | DEK aleatória, aberta pela senha ou pela chave de recuperação |
+| Desbloqueio | Biometria/senha do aparelho | E-mail + senha; rebloqueio após 1 min oculto |
+| Vários aparelhos | Só por backup em arquivo | Automático, via Supabase |
+| VFS do SQLite | n/a | `memoryOnlyVFS.js` no lugar do `AccessHandlePoolVFS` (OPFS) |
+
+**Por que trocar o VFS:** o worker do `expo-sqlite` abria um pool de arquivos OPFS na inicialização, mesmo usando só `:memory:`. Esses arquivos são exclusivos por origem: uma segunda aba, ou o Safari e o atalho ao mesmo tempo, falhava com `createSyncAccessHandle`. O `metro.config.js` resolve o import `./wa-sqlite/AccessHandlePoolVFS` do worker para `src/web/memoryOnlyVFS.js`, que devolve um `MemoryVFS`.
+
+Outros ajustes só da web: `webAlert.ts` (o `Alert.alert` do React Native Web não faz nada, então ele é ligado a `alert`/`confirm`), `PwaHead.tsx` (manifest e ícones; o `+html.tsx` foi descartado porque impedia a injeção dos scripts no export estático) e `public/` (manifest e ícones).
+
+## 13. Estratégia de testes
 
 | Arquivo | Garante |
 | --- | --- |
-| `money.test.ts` | Conversão e soma exatas, sem deriva de float |
-| `boleto.test.ts` | Valor e vencimento da linha digitável, incluindo o reinício do fator em 2025; PIX |
-| `budgetStatus.test.ts` | Limiares de 70% e 100% |
-| `goal.test.ts` | Progresso, restante e meta mensal |
-| `goalAlert.test.ts` | Marcos e alertas |
-| `ofx.test.ts` | Parser de OFX |
-| `backupCrypto.test.ts` | Cifra do backup: senha errada e adulteração nunca abrem |
-| `backup.test.ts` | Formato do backup: validação e referências |
+| `money.test.ts` | Conversão e soma exatas; máscara de moeda tecla a tecla, colar, apagar e limite |
+| `dates.test.ts` | dd/mm/aaaa válido e inválido (31/02, bissexto); máscara de data; ida e volta de centavos |
+| `installments.test.ts` | Parcelas exatas, datas no fim do mês, rótulo, irmãs; histórico mensal e anual; disponível; gasto por categoria; `monthRange` |
+| `category.test.ts` | Nome, emoji único, cor, duplicado por tipo |
+| `goal.test.ts` | Progresso, meta mensal, `parseGoalPeriod`, `isSingleEmoji`; sugestão de economia |
+| `vault.test.ts` | Selar e abrir; chave errada, adulteração e troca de tipo rejeitadas; login ≠ KEK; recuperação reabre os dados antigos |
+| `backupCrypto.test.ts`, `backup.test.ts` | Arquivo de backup |
+| `budgetStatus.test.ts`, `goalAlert.test.ts`, `boleto.test.ts`, `ofx.test.ts` | Orçamento, alertas, boleto, PIX, OFX |
 
-Rodam com `npm test` (`scripts/test.mjs` executa cada `*.test.ts` com `tsx`). O CI no GitHub Actions executa `typecheck`, `lint` e `test`.
+A interface foi validada com scripts Playwright (Chrome e WebKit) contra um Supabase **simulado**: criar conta, recuperar, dois aparelhos, conflito, sem rede, Safari, abas múltiplas, máscaras, parcelas, categorias e metas. Esses scripts não ficam no repositório.
 
-Sem cobertura: `period`, `achievements`, `savingsSuggestion`, `application`, `data` e UI. O `pixReceipt` é coberto dentro de `boleto.test.ts`.
-
-## 12. Decisões de projeto
+## 14. Decisões de projeto
 
 | Decisão | Motivo | Consequência |
 | --- | --- | --- |
-| Local-first, sem backend | Privacidade e simplicidade; app pessoal de um único usuário | Sem sincronização nem backup automático |
-| Backup em arquivo cifrado, não Supabase | Resolve a troca de aparelho sem servidor, conta ou LGPD | Manual; o usuário guarda arquivo e senha |
-| SQLCipher + chave no SecureStore | Proteger dados financeiros em repouso | Exige development build; chave presa ao aparelho |
-| Falhar se não houver criptografia | Evitar falsa sensação de segurança | App não abre no Expo Go |
-| Centavos inteiros | Evitar erros de float | Conversão obrigatória nas bordas |
-| `domain` puro | Testar regras sem emulador | Disciplina de não importar I/O |
-| `zod` só em `application` | Uma única fronteira de confiança | Telas não validam por conta própria |
-| Conquistas derivadas | Nada para migrar ou dessincronizar | Recalculadas em toda abertura |
-| Saldo de meta = soma de depósitos | Uma fonte de verdade | Consulta agregada por meta |
-| Migrations embutidas no bundle | Funciona offline e no boot | Atualizar `migrations.js` a cada migration |
-| Testes sem framework | Menor custo de manutenção | Sem relatório agregado nem watch |
+| PWA em vez de app nativo | Sem conta Apple Developer e sem Mac | Sem Face ID nativo; depende de navegador e rede |
+| Supabase como cofre, não como banco | Dados em qualquer aparelho sem expor o conteúdo | Servidor não consulta nada; todo o banco vai e volta |
+| Um blob por conta | Simples, atômico, versão única | Upload inteiro a cada mudança; sem mesclagem |
+| DEK + duas cópias embrulhadas | Recuperar a senha sem recifrar os dados | Perder senha **e** chave = perder os dados |
+| Sal derivado do e-mail | Derivar a chave antes do login | Pré-cálculo por e-mail possível (ver SECURITY.md) |
+| Sessão não persistida | Nada sensível no aparelho | Senha a cada recarga |
+| COEP `require-corp` | Safari | Recursos de outra origem precisam de CORP/CORS |
+| Troca do VFS OPFS | Abas múltiplas no iPhone | Sem armazenamento local persistente do SQLite |
+| Máscaras de entrada | Celular sem vírgula fácil | Valores sempre com 2 casas |
 
-## 13. Dívida técnica e riscos
+## 15. Backup em arquivo
 
-Ordenados por impacto:
+Exportação lógica das tabelas (`readSnapshot`) em JSON, cifrada com uma senha própria: scrypt N=2¹⁵, r=8, p=1, sal de 16 bytes e XChaCha20-Poly1305, com o cabeçalho como AAD. A restauração valida tudo com `zod` e referências, e mescla numa transação: categorias por *upsert*, o resto por *insert or ignore*. Restaurar duas vezes não duplica.
 
-1. **Backup só manual.** Depende de o usuário lembrar de exportar; o que for registrado depois do último backup se perde com o aparelho. Lembrete periódico seria o próximo passo.
-2. **Fator de vencimento do boleto:** a escolha do ciclo por proximidade falha para boletos pagos muito antes ou muito depois do vencimento (mais de 4.500 dias, cerca de 12 anos, de distância). Na prática é irrelevante.
-3. **Chaves estrangeiras** possivelmente desativadas: o código não executa `PRAGMA foreign_keys = ON`. Verificar o padrão do `expo-sqlite` e, se necessário, ativar após o `PRAGMA key`.
-4. **Sem `CHECK` no banco** para `amount_cents > 0` e `target_cents > 0`.
-5. **`unavailable` desbloqueia** o app em aparelho sem tela de bloqueio.
-6. **Sem edição ou exclusão** de lançamentos, nem CRUD de categorias.
-7. **`randomId` duplicado** em dois repositórios.
-8. **Escrita fora de `application`:** `deposit.tsx` chama `archiveGoal` direto do repositório.
-9. **Consultas sem filtro de período:** o Resumo e o Orçamento carregam a tabela `transactions` inteira em memória (`db.select().from(schema.transactions)`) e filtram o mês no cliente. Funciona com poucos dados, mas degrada com anos de histórico; o ideal é filtrar por `occurred_at` no SQL (já existe índice).
-10. **iOS não validado**; ícones e splash são placeholders.
-11. **Peer dependencies:** `react-dom` está fixado em 19.3.0 só para o `npm ci` resolver (o app não usa web). Revisar ao atualizar o SDK.
+Na web, o arquivo é entregue pela folha de compartilhar (`navigator.share`) ou como download (`backupFile.web.ts`), e lido com `<input type="file">`. Ao mudar o schema, toda coluna nova precisa entrar em `domain/backup.ts`, com aumento de `BACKUP_VERSION`.
 
-## 14. Como estender
+## 16. Dívida técnica e riscos
 
-### Nova regra de negócio
+1. **Senha a cada recarga.** Próximo passo planejado: Face ID via passkey (WebAuthn PRF), com PIN por aparelho como reserva.
+2. **Sem cache offline nem histórico de versões no servidor.** Um erro do usuário se propaga para todos os aparelhos.
+3. **Upload do banco inteiro** e limite de 1 MB por consulta síncrona.
+4. **CI não publicado** (token sem escopo `workflow`).
+5. **Sugestão de economia** ainda usa `entradas − gastos`.
+6. **Meta mensal** conta a partir de hoje, mesmo com início no futuro.
+7. **Sem `CHECK` no SQLite** para valores; a garantia é de `application` e da validação do backup.
+8. **Telas carregam a tabela `transactions` inteira** e filtram no cliente.
+9. **`randomId` duplicado** em repositórios.
+10. Itens de segurança em [`SECURITY.md`](SECURITY.md).
 
-1. Criar o arquivo em `src/domain/` como função pura, sem imports de `data`.
-2. Criar `nome.test.ts` ao lado, com `assert` simples, e rodar com `npx tsx`.
-3. Se precisar de dados, adicionar função no repositório e orquestrar em `src/application/`.
+## 17. Como estender
 
-### Nova coluna ou tabela
-
-1. Editar `src/data/db/schema.ts`.
-2. `npx drizzle-kit generate`.
-3. Commitar `.sql`, `meta/_journal.json` e `migrations.js`.
-4. Testar num app limpo **e** num app com dados da versão anterior.
-
-### Nova tela
-
-1. Criar o arquivo em `src/app/`; a rota nasce do nome do arquivo.
-2. Se for modal, registrar em `_layout.tsx` com `presentation: 'modal'`.
-3. Escritas via caso de uso em `src/application/`, nunca direto no repositório.
-4. Dentro de `<Link asChild>`, não passe array de estilos para o filho: use `StyleSheet.flatten`.
-
-### Nova fonte de importação
-
-1. Parser puro em `domain/` com teste.
-2. Caso de uso em `application/` que monte `ImportRow[]` e chame `importTransactions(rows, source)`.
-3. Garantir `externalId` estável para a deduplicação funcionar.
-4. Se for um `source` novo, incluí-lo no enum do schema (gera migration) e no `zod` de `addExpense`.
-
-## 15. Backup
-
-Objetivo: levar os dados para outro aparelho (troca de iPhone) sem servidor. Copiar o arquivo do banco não serve, porque a chave do SQLCipher é `WHEN_UNLOCKED_THIS_DEVICE_ONLY` e não sai do aparelho. O backup é, portanto, uma **exportação lógica** das tabelas, cifrada com uma senha do usuário.
-
-### Fluxo
-
-```mermaid
-flowchart LR
-  subgraph Criar
-    A[readSnapshot] --> B[buildBackup + JSON]
-    B --> C["encryptBackup (scrypt + XChaCha20-Poly1305)"]
-    C --> D[saveBackupFile: pasta escolhida]
-  end
-  subgraph Restaurar
-    E[pickBackupFile] --> F[decryptBackup]
-    F --> G["parseBackup (zod + referências)"]
-    G --> H["restoreSnapshot (transação)"]
-  end
-```
-
-| Camada | Arquivo | Papel |
-| --- | --- | --- |
-| domain | `backupCrypto.ts` | Envelope cifrado. Puro: sal e nonce são injetados. |
-| domain | `backup.ts` | Formato e validação (`zod`) do conteúdo. |
-| data | `backupRepository.ts` | Lê todas as tabelas; restaura numa transação. |
-| data | `backupFile.ts` | Seletor de pasta e de arquivo (`expo-file-system`). |
-| application | `backup.ts` | Orquestra; gera sal e nonce com `expo-crypto`; exige senha de 8 ou mais caracteres. |
-| app | `backup.tsx` | Tela, aberta pelo 💾 no Resumo. |
-
-### Criptografia
-
-- **Derivação da chave:** scrypt, N=2¹⁵, r=8, p=1 (cerca de 32 MB), sal aleatório de 16 bytes, senha normalizada em NFKC (o mesmo texto digitado gera os mesmos bytes em qualquer teclado).
-- **Cifra:** XChaCha20-Poly1305 com nonce aleatório de 24 bytes. É autenticada: senha errada ou qualquer byte alterado **falha**, nunca devolve lixo.
-- **Cabeçalho autenticado:** formato, versão, parâmetros do scrypt, sal e cifra entram como dados associados (AAD). Alterar o custo no arquivo também falha.
-- **Proteção contra arquivo hostil:** só aceita N entre 2¹⁰ e 2¹⁶, potência de 2, r=8 e p de 1 a 4, antes de qualquer cálculo caro. Isso limita a memória a cerca de 64 MB.
-- **Bibliotecas:** `@noble/ciphers` e `@noble/hashes` (JS puro, auditadas, sem código nativo, versões fixas). Não usam `crypto.getRandomValues`, porque a aleatoriedade vem do `expo-crypto`.
-
-Formato do arquivo (`.appbank`, JSON):
-
-```json
-{
-  "format": "appbank-backup-encrypted",
-  "version": 1,
-  "kdf": { "name": "scrypt", "N": 32768, "r": 8, "p": 1, "salt": "<hex>" },
-  "cipher": "xchacha20poly1305",
-  "nonce": "<hex>",
-  "data": "<hex>"
-}
-```
-
-Dentro de `data` está `{ format: "appbank-backup", version: 1, exportedAt, data: { categories, transactions, goals, goalDeposits } }`.
-
-### Por que o custo não é menor
-
-O arquivo vai para fora do aparelho (iCloud Drive), onde pode sofrer ataque de força bruta offline. N=2¹⁵ já está abaixo do recomendado pela OWASP para scrypt (2¹⁷). Como backup é uma operação rara, a escolha foi aceitar a espera. No emulador Android, em build de desenvolvimento, criar levou cerca de 33 s e restaurar entre 45 e 85 s. Esse ambiente é o pior caso, porque o JS roda sem otimização num emulador x86. **Não foi medido em iPhone nem em build de produção.** Se ficar lento demais na prática, a saída é derivar a chave em código nativo (por exemplo, `react-native-quick-crypto`), não baixar N.
-
-### Restauração
-
-- **Validação antes de gravar:** o conteúdo é tratado como entrada não confiável. `parseBackup` valida tipos, centavos inteiros, `amount_cents > 0`, alvo de meta `> 0`, depósito `≠ 0`, enums e **referências** (lançamento com categoria inexistente ou depósito com meta inexistente rejeita o arquivo inteiro). Essas regras cobrem o que o banco não impõe (não há `CHECK` nem `PRAGMA foreign_keys`).
-- **Tudo ou nada:** `restoreSnapshot` roda numa transação do drizzle. No driver `expo-sqlite`, a transação é síncrona (`begin`, callback, `commit`, e `rollback` se lançar), por isso usa `.run()` e `.all()`, sem `await`. Lotes de 50 linhas ficam bem abaixo do limite de parâmetros do SQLite.
-- **Mescla, não substitui:**
-  - Categorias: *upsert* por id. Num aparelho novo, o seed já criou as 7 categorias padrão com os mesmos ids e sem orçamento, e o upsert traz os orçamentos de volta.
-  - Lançamentos, metas e depósitos: *insert or ignore* por id. Restaurar duas vezes, ou por cima de dados existentes, não duplica nem apaga.
-  - O retorno conta só o que **entrou de fato** (`returning`).
-
-### Verificado
-
-- `backupCrypto.test.ts`: ida e volta; senha errada rejeitada; senha Unicode equivalente aceita; texto cifrado alterado rejeitado; cabeçalho alterado rejeitado; custos fora da faixa rejeitados; arquivo que não é backup rejeitado.
-- `backup.test.ts`: ida e volta exata (centavos, nulos, retirada negativa); formato e versão errados; valores inválidos; referências quebradas; backup vazio válido.
-- No emulador Android: backup criado e salvo em Documents; **o arquivo gerado no celular foi descriptografado no Node** com o mesmo código (prova de compatibilidade entre Hermes e Node), contendo exatamente os dados da tela; senha errada rejeitada; restauração por cima dos mesmos dados retornou 0 lançamentos novos e não duplicou nada.
-
-### Não verificado
-
-- iPhone real e iCloud Drive (o seletor do iOS é outro).
-- Restauração num aparelho realmente vazio. A lógica do upsert de categorias foi pensada para esse caso, mas não foi exercitada de ponta a ponta, porque isso exigiria apagar os dados do emulador.
-- Tempo em build de produção.
-
-### Ao mudar o schema
-
-Toda coluna nova em `schema.ts` precisa entrar em `backup.ts`, junto com um aumento de `BACKUP_VERSION`. A leitura de versões antigas precisa ser decidida: hoje, uma versão diferente é rejeitada. O `backup.test.ts` quebra se a ida e volta perder um campo.
+- **Regra nova:** função pura em `domain/` + `nome.test.ts` ao lado; repositório e caso de uso se precisar de dados.
+- **Coluna ou tabela nova:** `schema.ts` → `npx drizzle-kit generate` → commitar `.sql`, `_journal.json` e `migrations.js` → atualizar `domain/backup.ts`. O cofre não muda: ele guarda o SQLite inteiro.
+- **Tela nova:** arquivo em `src/app/`. Fora das abas, registre em `_layout.tsx` com `modal` ou `pushed` (que trazem o botão de saída) e feche com `goBack(fallback)`, nunca `router.back()`.
+- **Algo diferente só na web:** crie `arquivo.web.ts` ao lado de `arquivo.ts`, com a mesma API.
+- **Campo de dinheiro ou data:** `maskCurrencyInput` / `maskDateInput` + `keyboardType="number-pad"`. Texto livre: `maxLength={TEXT_MAX}`.
