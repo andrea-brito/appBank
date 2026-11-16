@@ -20,6 +20,38 @@ export function parseRate(text: unknown): number {
   return r > 0 ? r : NaN;
 }
 
+/** Pairs the Banco Central PTAX API can answer (commercial only, no tourist rate). */
+export const PTAX_CURRENCY: Partial<Record<Pair, 'EUR' | 'USD'>> = { 'EUR-BRL': 'EUR', 'USD-BRL': 'USD' };
+
+/** BCB OData date format, MM-DD-YYYY, for a day in Brasília (UTC-3). */
+export function ptaxDate(d: Date): string {
+  const br = new Date(d.getTime() - 3 * 3600_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(br.getUTCMonth() + 1)}-${p(br.getUTCDate())}-${br.getUTCFullYear()}`;
+}
+
+export function ptaxUrl(currency: 'EUR' | 'USD', now: Date): string {
+  const from = ptaxDate(new Date(now.getTime() - 7 * 86_400_000)); // covers weekends/holidays
+  const to = ptaxDate(now);
+  return (
+    'https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/' +
+    'CotacaoMoedaPeriodo(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)' +
+    `?@moeda='${currency}'&@dataInicial='${from}'&@dataFinalCotacao='${to}'` +
+    '&$format=json&$orderby=dataHoraCotacao%20desc&$top=1'
+  );
+}
+
+/**
+ * Selling rate of the latest PTAX bulletin, as Rate4, or NaN. The API returns
+ * numbers (6.2133); toFixed(4) keeps the 4 decimals it publishes before the
+ * same string parsing used for every other rate.
+ */
+export function parsePtax(body: unknown): number {
+  const row = (body as { value?: { cotacaoVenda?: unknown }[] } | null)?.value?.[0];
+  const v = row?.cotacaoVenda;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? parseRate(v.toFixed(4)) : NaN;
+}
+
 export function formatRate(rate: number): string {
   const frac = String(rate % 10_000).padStart(4, '0').replace(/0{1,2}$/, '');
   return `R$ ${Math.floor(rate / 10_000)},${frac}`;
@@ -72,7 +104,7 @@ export function emailFor(pair: Pair, rate: number, targetCents: number, appUrl: 
     text:
       `O ${label.toLowerCase()} está em ${formatRate(rate)} (venda), no seu alvo de até ${target}.\n\n` +
       `Ver no appBank: ${appUrl}/fx\n\n` +
-      'Cotação de referência (AwesomeAPI). Confira o valor final na casa de câmbio ou no banco antes de comprar.\n' +
+      'Cotação de referência (AwesomeAPI ou PTAX do Banco Central). Confira o valor final na casa de câmbio ou no banco antes de comprar.\n' +
       'Para parar estes avisos, desligue o alerta na tela Câmbio.',
   };
 }

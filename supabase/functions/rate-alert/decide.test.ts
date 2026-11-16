@@ -2,7 +2,18 @@
  * Runnable self-check for the rate-alert decision.
  * Run with: npx tsx supabase/functions/rate-alert/decide.test.ts
  */
-import { decide, emailFor, formatRate, isMarketHours, parseRate, type AlertRow } from './decide';
+import {
+  decide,
+  emailFor,
+  formatRate,
+  isMarketHours,
+  parsePtax,
+  parseRate,
+  PTAX_CURRENCY,
+  ptaxDate,
+  ptaxUrl,
+  type AlertRow,
+} from './decide';
 
 let failures = 0;
 function check(label: string, cond: boolean) {
@@ -32,6 +43,16 @@ check('Monday 8h59 BRT closed', !isMarketHours(new Date('2026-11-16T11:59:00Z'))
 check('Monday 18h BRT closed', !isMarketHours(new Date('2026-11-16T21:00:00Z')));
 check('Saturday closed', !isMarketHours(new Date('2026-11-14T14:00:00Z')));
 check('Friday 17h30 BRT open', isMarketHours(new Date('2026-11-20T20:30:00Z')));
+
+// PTAX fallback (Banco Central): real response shape.
+const ptaxBody = { value: [{ paridadeCompra: 1.1066, paridadeVenda: 1.1067, cotacaoCompra: 6.2121, cotacaoVenda: 6.2133, dataHoraCotacao: '2026-11-12 13:08:21.353', tipoBoletim: 'Fechamento' }] };
+check('ptax selling rate', parsePtax(ptaxBody) === 62133);
+check('ptax float noise', parsePtax({ value: [{ cotacaoVenda: 5.99999999999 }] }) === 60000 && parsePtax({ value: [{ cotacaoVenda: 6.2 }] }) === 62000);
+check('ptax empty/garbage', [parsePtax({ value: [] }), parsePtax(null), parsePtax({ value: [{ cotacaoVenda: '6.2' }] }), parsePtax({ value: [{ cotacaoVenda: -1 }] })].every(Number.isNaN));
+check('ptax date in Brasília', ptaxDate(new Date('2026-11-17T02:30:00Z')) === '11-16-2026');
+const pu = ptaxUrl('EUR', new Date('2026-11-16T14:00:00Z'));
+check('ptax url', pu.includes("@moeda='EUR'") && pu.includes("@dataInicial='11-09-2026'") && pu.includes("@dataFinalCotacao='11-16-2026'") && pu.includes('$top=1'));
+check('ptax only commercial pairs', PTAX_CURRENCY['EUR-BRL'] === 'EUR' && PTAX_CURRENCY['EUR-BRLT'] === undefined);
 
 check('parse like the app', parseRate('6.19267') === 61926 && Number.isNaN(parseRate(6.2)) && Number.isNaN(parseRate('x')));
 const mail = emailFor('EUR-BRL', 59800, 600, 'https://appbank-omega.vercel.app');

@@ -10,7 +10,18 @@
 // by the platform. Never logs e-mail addresses.
 import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
 
-import { decide, emailFor, isMarketHours, PAIRS, parseRate, type AlertRow, type Pair } from './decide.ts';
+import {
+  decide,
+  emailFor,
+  isMarketHours,
+  PAIRS,
+  parsePtax,
+  parseRate,
+  PTAX_CURRENCY,
+  ptaxUrl,
+  type AlertRow,
+  type Pair,
+} from './decide.ts';
 
 const env = (name: string) => Deno.env.get(name) ?? '';
 const QUOTES_URL = `https://economia.awesomeapi.com.br/json/last/${PAIRS.join(',')}`;
@@ -56,11 +67,29 @@ Deno.serve(async (req) => {
   if (error) return json({ error: 'db read failed' }, 500);
   if (!alerts?.length) return json({ checked: 0 });
 
-  const res = await fetch(QUOTES_URL, { headers: { Accept: 'application/json' } });
-  if (!res.ok) return json({ error: `quotes HTTP ${res.status}` }, 502);
-  const body = await res.json().catch(() => null);
+  // AwesomeAPI first (has tourist rates). It often answers 429 to Supabase's
+  // shared egress IPs, so commercial pairs fall back to the Banco Central PTAX.
   const rates: Partial<Record<Pair, number>> = {};
-  for (const pair of PAIRS) rates[pair] = parseRate(body?.[pair.replace('-', '')]?.ask);
+  const sources: Record<string, string> = {};
+  const res = await fetch(env('QUOTES_URL') || QUOTES_URL, { headers: { Accept: 'application/json' } }).catch(() => null);
+  if (res?.ok) {
+    const body = await res.json().catch(() => null);
+    for (const pair of PAIRS) {
+      rates[pair] = parseRate(body?.[pair.replace('-', '')]?.ask);
+      if (rates[pair]! > 0) sources[pair] = 'awesomeapi';
+    }
+  }
+  const wanted = new Set((alerts as AlertRow[]).map((a) => a.pair as Pair));
+  for (const pair of wanted) {
+    const currency = PTAX_CURRENCY[pair];
+    if (rates[pair]! > 0 || !currency) continue;
+    const r = await fetch(ptaxUrl(currency, now), { headers: { Accept: 'application/json' } }).catch(() => null);
+    rates[pair] = r?.ok ? parsePtax(await r.json().catch(() => null)) : NaN;
+    if (rates[pair]! > 0) sources[pair] = 'ptax';
+  }
+  if (![...wanted].some((p) => rates[p]! > 0)) {
+    return json({ error: `no quote (awesomeapi HTTP ${res?.status ?? 'erro de rede'}, ptax sem dado)` }, 502);
+  }
 
   let sent = 0;
   for (const alert of alerts as AlertRow[]) {
@@ -70,11 +99,16 @@ Deno.serve(async (req) => {
 
     let notifiedAt: string | null = null;
     if (d.notify) {
-      const { data } = await sb.auth.admin.getUserById(alert.user_id);
-      const email = data?.user?.email;
-      if (email && (await sendEmail(email, emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'))))) {
-        notifiedAt = now.toISOString();
-        sent++;
+      try {
+        const { data } = await sb.auth.admin.getUserById(alert.user_id);
+        const email = data?.user?.email;
+        if (email && (await sendEmail(email, emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'))))) {
+          notifiedAt = now.toISOString();
+          sent++;
+        }
+      } catch (e) {
+        // One bad alert must not stop the others; it is retried at the next check.
+        console.error('notify failed', e instanceof Error ? e.message : String(e));
       }
     }
 
@@ -90,5 +124,5 @@ Deno.serve(async (req) => {
       .eq('user_id', alert.user_id);
   }
 
-  return json({ checked: alerts.length, sent });
+  return json({ checked: alerts.length, sent, sources });
 });

@@ -326,6 +326,7 @@ flowchart LR
   APP -->|"cotação, média 30 dias"| AW
 ```
 
+- **Reserva no servidor:** a AwesomeAPI responde **429** aos IPs compartilhados das Edge Functions do Supabase (verificado em produção). A função então busca os pares **comerciais** na PTAX do Banco Central (`ptaxUrl`/`parsePtax`, último boletim dos últimos 7 dias). O turismo não tem reserva: sem a AwesomeAPI, o alerta de turismo não dispara. A resposta da função traz `sources` com a fonte usada por par.
 - **Fonte:** AwesomeAPI, e não a PTAX do Banco Central. Ela tem a cotação **turismo** (o que se paga de fato) e atualização quase em tempo real, enquanto a PTAX tem 4 boletins oficiais por dia, só comerciais. A resposta é validada com `zod` (`data/quotes.ts`), com cache de 5 minutos.
 - **Taxas** são inteiros em 1/10000 de real (`domain/fx.ts`, `Rate4`): `"6.2420"` vira `62420`, convertido pelo texto. A conversão de reais para euros arredonda para baixo, para nunca prometer mais do que se compra.
 - **Decisão** (`functions/rate-alert/decide.ts`, puro e testado): avisa quando `cotação ≤ alvo` **e** a consulta anterior estava acima, ou seja, um e-mail por cruzamento. Mínimo de 20 horas entre e-mails. Mudar o alvo ou a cotação rearma o alerta.

@@ -1,15 +1,21 @@
 -- appBank: schedule the rate-alert Edge Function. Run in Supabase > SQL Editor
--- AFTER deploying the function and setting its secrets.
+-- AFTER deploying the function and setting its secrets. Safe to run again.
 --
--- 1) Enable the extensions (Database > Extensions): pg_cron and pg_net.
--- 2) Replace COLE_AQUI_O_CRON_SECRET with the same value given to
---    `supabase secrets set CRON_SECRET=...`. It is stored in Supabase Vault,
---    not in the job text. Do not commit the real value.
+-- Replace COLE_AQUI_O_CRON_SECRET with the same value as the function secret
+-- CRON_SECRET. It is stored in Supabase Vault, not in the job text. Do not
+-- commit the real value.
 
+-- Extensions (same as turning them on in Database > Extensions).
+create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net with schema extensions;
+
+-- Secret used by the job (replaced if it already exists).
+delete from vault.secrets where name = 'rate_alert_cron_secret';
 select vault.create_secret('COLE_AQUI_O_CRON_SECRET', 'rate_alert_cron_secret');
 
 -- Every 30 min, Mon-Fri, 12:00-20:30 UTC = 9:00-17:30 in Brasília.
 -- The function also checks market hours itself.
+select cron.unschedule(jobid) from cron.job where jobname = 'rate-alert';
 select cron.schedule(
   'rate-alert',
   '*/30 12-20 * * 1-5',

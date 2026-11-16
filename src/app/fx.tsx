@@ -113,6 +113,13 @@ export default function FxScreen() {
           ))}
         </View>
 
+        {pair.endsWith('T') && (
+          <Text style={styles.muted}>
+            ⚠️ O aviso por e-mail do turismo depende da AwesomeAPI, que às vezes bloqueia o nosso servidor. O
+            comercial é mais confiável: se ela falhar, usamos a cotação oficial do Banco Central.
+          </Text>
+        )}
+
         <Text style={styles.label}>Avisar quando estiver em até (R$)</Text>
         <TextInput
           style={styles.input}
