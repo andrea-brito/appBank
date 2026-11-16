@@ -21,6 +21,7 @@ import {
   ptaxUrl,
   type AlertRow,
   type Pair,
+  type QuoteSource,
 } from './decide.ts';
 
 const env = (name: string) => Deno.env.get(name) ?? '';
@@ -39,7 +40,7 @@ function sameSecret(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function sendEmail(to: string, mail: { subject: string; text: string }): Promise<boolean> {
+async function sendEmail(to: string, mail: { subject: string; text: string; html: string }): Promise<boolean> {
   const res = await fetch(env('RESEND_URL') || 'https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
@@ -102,7 +103,8 @@ Deno.serve(async (req) => {
       try {
         const { data } = await sb.auth.admin.getUserById(alert.user_id);
         const email = data?.user?.email;
-        if (email && (await sendEmail(email, emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'))))) {
+        const mail = emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'), sources[alert.pair] as QuoteSource, now);
+        if (email && (await sendEmail(email, mail))) {
           notifiedAt = now.toISOString();
           sent++;
         }

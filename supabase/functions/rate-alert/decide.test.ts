@@ -5,7 +5,9 @@
 import {
   decide,
   emailFor,
+  escapeHtml,
   formatRate,
+  formatWhenBR,
   isMarketHours,
   parsePtax,
   parseRate,
@@ -55,8 +57,16 @@ check('ptax url', pu.includes("@moeda='EUR'") && pu.includes("@dataInicial='11-0
 check('ptax only commercial pairs', PTAX_CURRENCY['EUR-BRL'] === 'EUR' && PTAX_CURRENCY['EUR-BRLT'] === undefined);
 
 check('parse like the app', parseRate('6.19267') === 61926 && Number.isNaN(parseRate(6.2)) && Number.isNaN(parseRate('x')));
-const mail = emailFor('EUR-BRL', 59800, 600, 'https://appbank-omega.vercel.app');
-check('email mentions rate, target and link', mail.subject.includes('R$ 5,98') && mail.text.includes('R$ 6,00') && mail.text.includes('/fx'));
+const at = new Date('2026-11-16T17:30:00Z'); // 14:30 in Brasília
+const mail = emailFor('EUR-BRL', 59800, 600, 'https://appbank-omega.vercel.app/', 'ptax', at);
+check('email mentions rate, target and link', mail.subject.includes('R$ 5,98') && mail.text.includes('R$ 6,00') && mail.text.includes('https://appbank-omega.vercel.app/fx'));
+check('text has distance, time and source', mail.text.includes('R$ 0,02 abaixo') && mail.text.includes('16/11/2026 às 14:30') && mail.text.includes('PTAX'));
+check('html has rate, target, button and source', ['R$ 5,98', 'até R$ 6,00', 'R$ 0,02', 'href="https://appbank-omega.vercel.app/fx"', 'Ver no appBank', 'PTAX do Banco Central'].every((s) => mail.html.includes(s)));
+check('html is a full document', mail.html.startsWith('<!doctype html>') && mail.html.includes('lang="pt-BR"') && mail.html.trimEnd().endsWith('</html>'));
+const atTarget = emailFor('EUR-BRL', 60000, 600, 'https://x', 'awesomeapi', at);
+check('exactly at target says so', atTarget.html.includes('no alvo') && !atTarget.text.includes('abaixo do alvo'));
+check('escapes injected url', escapeHtml('"><script>') === '&quot;&gt;&lt;script&gt;' && !emailFor('EUR-BRL', 59800, 600, 'https://x/"><script>', 'ptax', at).html.includes('<script>'));
+check('when in Brasília', formatWhenBR(new Date('2026-11-17T02:05:00Z')) === '16/11/2026 às 23:05');
 check('format', formatRate(59800) === 'R$ 5,98');
 
 if (failures) {

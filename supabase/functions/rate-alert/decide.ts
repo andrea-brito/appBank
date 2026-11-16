@@ -96,15 +96,100 @@ export function decide(alert: AlertRow, rate: number, now: Date): Decision {
   return { notify: below && !alert.was_below && cooledDown, wasBelow: below, rate };
 }
 
-export function emailFor(pair: Pair, rate: number, targetCents: number, appUrl: string) {
+export type QuoteSource = 'awesomeapi' | 'ptax';
+
+const SOURCE_LABEL: Record<QuoteSource, string> = {
+  awesomeapi: 'AwesomeAPI',
+  ptax: 'PTAX do Banco Central',
+};
+
+/** Minimal HTML escaping for values interpolated into the e-mail body. */
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+/** "13/11/2026 às 14:30" in Brasília time (UTC-3). */
+export function formatWhenBR(d: Date): string {
+  const br = new Date(d.getTime() - 3 * 3600_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(br.getUTCDate())}/${p(br.getUTCMonth() + 1)}/${br.getUTCFullYear()} às ${p(br.getUTCHours())}:${p(br.getUTCMinutes())}`;
+}
+
+/**
+ * The alert e-mail: a plain-text version (also helps deliverability) and an
+ * HTML version with inline styles and tables only, the layout every mail
+ * client renders (Gmail, Outlook, Apple Mail, dark mode).
+ */
+export function emailFor(
+  pair: Pair,
+  rate: number,
+  targetCents: number,
+  appUrl: string,
+  source: QuoteSource = 'awesomeapi',
+  at: Date = new Date(),
+) {
   const label = PAIR_LABEL[pair];
-  const target = formatRate(targetCents * 100);
-  return {
-    subject: `💶 ${label} a ${formatRate(rate)}: chegou no seu preço`,
-    text:
-      `O ${label.toLowerCase()} está em ${formatRate(rate)} (venda), no seu alvo de até ${target}.\n\n` +
-      `Ver no appBank: ${appUrl}/fx\n\n` +
-      'Cotação de referência (AwesomeAPI ou PTAX do Banco Central). Confira o valor final na casa de câmbio ou no banco antes de comprar.\n' +
-      'Para parar estes avisos, desligue o alerta na tela Câmbio.',
-  };
+  const target = targetCents * 100;
+  const below = Math.max(0, target - rate);
+  const link = `${appUrl.replace(/\/+$/, '')}/fx`;
+  const when = formatWhenBR(at);
+  const sourceLabel = SOURCE_LABEL[source];
+  const safeLink = escapeHtml(link);
+
+  const text =
+    `O ${label.toLowerCase()} está em ${formatRate(rate)} (venda), no seu alvo de até ${formatRate(target)}.\n` +
+    (below > 0 ? `São ${formatRate(below)} abaixo do alvo.\n` : '') +
+    `\nCotação de ${when} (${sourceLabel}).\n\n` +
+    `Ver no appBank: ${link}\n\n` +
+    'Valor de referência: confira o preço final na casa de câmbio ou no banco antes de comprar.\n' +
+    'Para parar estes avisos, desligue o alerta na tela Câmbio.';
+
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light only">
+<title>${escapeHtml(label)} no seu preço</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(`${label} a ${formatRate(rate)}, no seu alvo de até ${formatRate(target)}.`)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">
+  <tr><td align="center" style="padding:24px 12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <tr><td style="background:#4f46e5;padding:20px 24px;color:#ffffff;">
+        <div style="font-size:14px;font-weight:600;opacity:.9;">appBank · Câmbio</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;">💶 Chegou no seu preço!</div>
+      </td></tr>
+      <tr><td style="padding:24px;">
+        <div style="font-size:14px;color:#4b5563;">${escapeHtml(label)} agora (venda)</div>
+        <div style="font-size:40px;line-height:1.1;font-weight:800;color:#166534;margin:6px 0 4px;">${escapeHtml(formatRate(rate))}</div>
+        <div style="font-size:13px;color:#6b7280;">Cotação de ${escapeHtml(when)}</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;background:#f0fdf4;border-radius:12px;">
+          <tr>
+            <td style="padding:14px 16px;">
+              <div style="font-size:12px;color:#166534;">Seu alvo</div>
+              <div style="font-size:18px;font-weight:700;color:#14532d;">até ${escapeHtml(formatRate(target))}</div>
+            </td>
+            <td style="padding:14px 16px;text-align:right;">
+              <div style="font-size:12px;color:#166534;">Abaixo do alvo</div>
+              <div style="font-size:18px;font-weight:700;color:#14532d;">${below > 0 ? escapeHtml(formatRate(below)) : 'no alvo'}</div>
+            </td>
+          </tr>
+        </table>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+          <a href="${safeLink}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:14px 28px;border-radius:12px;">Ver no appBank</a>
+        </td></tr></table>
+        <p style="font-size:13px;line-height:1.5;color:#4b5563;margin:20px 0 0;">Valor de referência (${escapeHtml(sourceLabel)}). Confira o preço final na casa de câmbio ou no banco antes de comprar.</p>
+      </td></tr>
+      <tr><td style="padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;line-height:1.5;color:#6b7280;">
+        Você recebe este aviso porque ligou o alerta de câmbio no appBank. Para parar, desligue o alerta na tela <a href="${safeLink}" style="color:#4f46e5;">Câmbio</a>.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+
+  return { subject: `💶 ${label} a ${formatRate(rate)}: chegou no seu preço`, text, html };
 }
