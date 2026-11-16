@@ -31,3 +31,6 @@ web-build/
 *.log
 .vscode/
 .kiro/
+
+# Supabase CLI local state
+supabase/.temp/
