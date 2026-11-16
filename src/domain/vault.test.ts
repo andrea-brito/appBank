@@ -8,7 +8,16 @@
 import { bytesToHex } from '@noble/hashes/utils.js';
 
 import { NONCE_BYTES } from './backupCrypto';
-import { deriveAccount, formatRecoveryKey, open, recoveryKek, RECOVERY_BYTES, seal } from './vault';
+import {
+  ACCOUNT_KDF,
+  deriveAccount,
+  formatRecoveryKey,
+  LEGACY_ACCOUNT_KDF,
+  open,
+  recoveryKek,
+  RECOVERY_BYTES,
+  seal,
+} from './vault';
 
 let failures = 0;
 function check(label: string, cond: boolean) {
@@ -76,6 +85,20 @@ async function main() {
   check('recovered key still opens the old data', new TextDecoder().decode(open(open(fresh.kek, newWrap, 'wrap-pass'), data, 'data')).startsWith('SQLite'));
   const otherCode = formatRecoveryKey(new Uint8Array(RECOVERY_BYTES).fill(9));
   check('wrong recovery key rejected', throws(() => open(recoveryKek(otherCode), wrapRecovery, 'wrap-recovery')) != null);
+
+  // KDF upgrade: OWASP-listed cost, same memory as before, different secrets
+  // (so an old login/wrap never opens with the new key and the migration is needed).
+  check('account KDF is on the OWASP list (N=2^15, r=8, p>=3)', ACCOUNT_KDF.N === 2 ** 15 && ACCOUNT_KDF.r === 8 && ACCOUNT_KDF.p >= 3);
+  check('legacy KDF is the old one', LEGACY_ACCOUNT_KDF.N === 2 ** 15 && LEGACY_ACCOUNT_KDF.p === 1);
+  const fastNew = { N: 2 ** 10, r: 8, p: 3 };
+  const fastOld = { N: 2 ** 10, r: 8, p: 1 };
+  const accNew = await deriveAccount('eu@exemplo.com', 'senha longa de teste', fastNew);
+  const accOld = await deriveAccount('eu@exemplo.com', 'senha longa de teste', fastOld);
+  check('new cost -> different login and key', accNew.authPassword !== accOld.authPassword && !same(accNew.kek, accOld.kek));
+  const oldWrap = seal(accOld.kek, dek, n(10), 'wrap-pass');
+  check('old wrap does not open with the new key', throws(() => open(accNew.kek, oldWrap, 'wrap-pass')) != null);
+  const rewrapped = seal(accNew.kek, open(accOld.kek, oldWrap, 'wrap-pass'), n(11), 'wrap-pass');
+  check('migration rewrap keeps the same data key', same(open(accNew.kek, rewrapped, 'wrap-pass'), dek));
 
   if (failures) {
     console.error(`vault.test.ts: ${failures} check(s) failed`);

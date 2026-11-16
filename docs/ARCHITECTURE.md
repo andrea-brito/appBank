@@ -129,7 +129,7 @@ Por que o banco abre de forma assíncrona antes de tudo: o drizzle usa a API **s
 
 ```
 salt   = SHA-256("appbank-account|" + email minúsculo)[0..16]
-master = scrypt(NFKC(senha), salt, N=2^15, r=8, p=1, 32 bytes)
+master = scrypt(NFKC(senha), salt, N=2^15, r=8, p=3, 32 bytes)   (contas antigas: p=1, migradas no login)
 senhaDeLogin = hex(HKDF-SHA256(master, info="appbank-login-v1"))   -> Supabase Auth
 KEK          = HKDF-SHA256(master, info="appbank-kek-v1")          -> só em memória
 ```

@@ -74,6 +74,18 @@ Junto: `Permissions-Policy` desliga câmera, microfone, geolocalização, pagame
 
 **Manutenção:** o hash depende do que o Expo gera. `scripts/check-csp.mjs` roda no build da Vercel (`buildCommand`) e **falha o deploy** se algum script inline não estiver liberado na CSP, já mostrando o hash certo para colar. A CSP não vale no `npm run web` (desenvolvimento usa `eval` para recarregar o código), só no build de produção.
 
+### 4. ✅ Custo do scrypt da conta (feito em 17/11/2026)
+
+`ACCOUNT_KDF` passou para **N=2¹⁵, r=8, p=3**, uma das configurações da lista da OWASP para scrypt. Ela usa a **mesma memória** de antes (32 MB) e custa cerca de 3 vezes mais (333 ms → 711 ms num PC). As opções com N maior pedem 64 a 128 MB, o que arrisca o Safari do iPhone matar a aba.
+
+**Migração transparente** (`unlockVault` + `migrateAccount`): o login tenta a configuração nova e, se o Supabase recusar, tenta a antiga (`LEGACY_ACCOUNT_KDF`). Na entrada com a antiga, a DEK é reembrulhada com a nova KEK (sem mudar os dados nem a versão) e depois a senha de login é trocada. Cada etapa é conferida a cada login, então uma migração interrompida termina na próxima entrada. Depois de migrar, o aparelho guarda um marcador sem segredo (`appbank_kdf_v2`) e deixa de tentar a configuração antiga, então uma senha errada custa uma derivação só.
+
+Verificado com o build antigo e o novo contra o mesmo Supabase simulado: conta antiga entra e migra; os logins seguintes fazem uma tentativa só; senha errada é recusada; outro aparelho entra direto; migração interrompida (atualização do wrap recusada) entra mesmo assim e completa no login seguinte.
+
+Ainda vale: o sal vem do e-mail, o que permite pré-cálculo por e-mail. A senha mínima de 12 caracteres e o custo maior reduzem esse risco.
+
+<details><summary>Análise original</summary>
+
 ### 4. Custo do scrypt da conta abaixo do recomendado (média, meio dia)
 
 O blob fica num servidor. Se ele vazar, um atacante pode testar senhas offline contra o `wrap_pass`. O custo atual (N=2¹⁵, r=8) está abaixo do mínimo da OWASP para scrypt (N=2¹⁷). Além disso, o sal vem do e-mail, então um atacante que conheça o e-mail pode **pré-calcular** palpites antes de um vazamento.
@@ -84,6 +96,8 @@ O blob fica num servidor. Se ele vazar, um atacante pode testar senhas offline c
 - Custo: o login fica cerca de 4 vezes mais lento. Medir no iPhone antes.
 
 A senha mínima de 12 caracteres já ajuda. Um medidor de força no cadastro também ajudaria.
+
+</details>
 
 ### 5. Uma única versão no servidor (média, meio dia)
 

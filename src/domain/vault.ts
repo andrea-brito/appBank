@@ -44,6 +44,16 @@ export interface Account {
 }
 
 /**
+ * Account KDF cost. The vault sits on a server, so a leak allows offline
+ * guessing. N=2^15, r=8, p=3 is on the OWASP scrypt list and keeps the memory
+ * of the old setting (32 MB): larger N risks the tab being killed on iPhone.
+ * ~3x the old cost (measured: 333 ms -> 711 ms on a PC).
+ */
+export const ACCOUNT_KDF: ScryptCost = { N: 2 ** 15, r: 8, p: 3 };
+/** Cost used before 11/2026. Only for signing in old accounts once, to migrate them. */
+export const LEGACY_ACCOUNT_KDF: ScryptCost = SCRYPT; // N=2^15, r=8, p=1
+
+/**
  * One passphrase, two independent secrets: scrypt once (salt bound to the
  * e-mail, so it is known before login), then HKDF splits it into the login
  * password and the key-wrapping key. The server only sees the login one.
@@ -51,7 +61,7 @@ export interface Account {
 export async function deriveAccount(
   email: string,
   passphrase: string,
-  cost: ScryptCost = SCRYPT,
+  cost: ScryptCost = ACCOUNT_KDF,
 ): Promise<Account> {
   const id = email.trim().toLowerCase();
   const salt = sha256(enc.encode(`appbank-account|${id}`)).slice(0, SALT_BYTES);

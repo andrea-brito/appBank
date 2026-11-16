@@ -12,8 +12,10 @@ import {
 
 import { NONCE_BYTES } from '@/domain/backupCrypto';
 import {
+  type Account,
   DATA_KEY_BYTES,
   deriveAccount,
+  LEGACY_ACCOUNT_KDF,
   formatRecoveryKey,
   open,
   recoveryKek,
@@ -39,6 +41,8 @@ z.config({ jitless: true });
 const SAVE_DELAY_MS = 800;
 const RETRY_MS = 10_000;
 const EMAIL_KEY = 'appbank_email';
+/** E-mail whose account this device saw on ACCOUNT_KDF (not secret): skips the legacy retry. */
+const KDF_KEY = 'appbank_kdf_v2';
 
 // Drizzle only uses expo-sqlite's *sync* API. On web each sync call busy-waits
 // on the worker with a short timeout, so the first call (worker boot + wasm
@@ -182,6 +186,7 @@ export async function unlockVault(
   }
 
   const auth = sb().auth;
+  let legacy: Account | null = null; // set when the account still uses the old KDF cost
   if (mode === 'signup') {
     const { data, error } = await auth.signUp({ email: acc.email, password: acc.authPassword });
     if (error) throw authError(error.message);
@@ -190,20 +195,71 @@ export async function unlockVault(
     }
   } else {
     const { error } = await auth.signInWithPassword({ email: acc.email, password: acc.authPassword });
-    if (error) throw authError(error.message);
+    if (error) {
+      // Accounts created before the KDF upgrade: try the old cost once, then migrate.
+      // Skipped once this device has seen the account migrated (wrong passwords stay one derivation).
+      const migrated = localStorage.getItem(KDF_KEY) === acc.email;
+      if (migrated || !/invalid login/i.test(error.message)) throw authError(error.message);
+      legacy = await deriveAccount(email, passphrase, LEGACY_ACCOUNT_KDF);
+      const { error: legacyError } = await auth.signInWithPassword({ email: acc.email, password: legacy.authPassword });
+      if (legacyError) throw authError(error.message);
+    }
   }
   localStorage.setItem(EMAIL_KEY, acc.email);
 
   const row = await fetchRow();
   let code: string | null = null;
   if (row) {
-    await loadData(open(acc.kek, row.wrap_pass, 'wrap-pass'), row);
+    // The wrap may still be sealed with the old key even after the login moved
+    // on (an interrupted migration): try the new key, then the old one.
+    let dataKey: Uint8Array;
+    let wrapIsLegacy = false;
+    try {
+      dataKey = open(acc.kek, row.wrap_pass, 'wrap-pass');
+    } catch {
+      legacy ??= await deriveAccount(email, passphrase, LEGACY_ACCOUNT_KDF);
+      dataKey = open(legacy.kek, row.wrap_pass, 'wrap-pass'); // throws 'Senha incorreta.' if neither
+      wrapIsLegacy = true;
+    }
+    await loadData(dataKey, row);
+    await migrateAccount(acc, dataKey, row, wrapIsLegacy, legacy != null && mode === 'signin');
   } else {
     code = await createVault(acc.kek);
   }
   kek = acc.kek;
+  if (mode === 'signup') localStorage.setItem(KDF_KEY, acc.email);
   startAutosave();
   return code;
+}
+
+/**
+ * Move an old account to ACCOUNT_KDF. Each step is idempotent and re-checked at
+ * every login, so an interrupted migration finishes next time:
+ * 1. re-seal the data key with the new KEK (data itself untouched, version kept);
+ * 2. switch the Supabase login password to the new derived one.
+ * Failures are logged, not thrown: the user is already in with the old secrets.
+ */
+async function migrateAccount(acc: Account, dataKey: Uint8Array, row: Row, wrapIsLegacy: boolean, loginIsLegacy: boolean) {
+  if (wrapIsLegacy) {
+    const { data: rows, error } = await sb()
+      .from('vaults')
+      .update({ wrap_pass: seal(acc.kek, dataKey, nonce(), 'wrap-pass') })
+      .eq('version', row.version)
+      .select('version');
+    // Zero rows: another device saved in between. Retried at the next login.
+    if (error || !rows?.length) {
+      console.error('kdf migration: rewrap not applied', error?.message ?? 'version changed');
+      return; // keep the login on the old password until the wrap is moved too
+    }
+  }
+  if (loginIsLegacy) {
+    const { error } = await sb().auth.updateUser({ password: acc.authPassword });
+    if (error) {
+      console.error('kdf migration: password update failed', error.message);
+      return;
+    }
+  }
+  localStorage.setItem(KDF_KEY, acc.email);
 }
 
 /**
@@ -304,6 +360,7 @@ export async function recoverAccount(code: string, newPassphrase: string): Promi
   await loadData(key, { ...row, version: row.version + 1 });
   kek = acc.kek;
   localStorage.setItem(EMAIL_KEY, email);
+  localStorage.setItem(KDF_KEY, acc.email); // recovery always writes the current KDF
   startAutosave();
 }
 
