@@ -52,7 +52,7 @@ Resumo. O detalhe técnico está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.m
 - **Chave de recuperação.** Ao criar a conta, o app mostra uma chave de 32 caracteres, **uma única vez**. Esqueceu a senha? Link por e-mail + chave de recuperação = nova senha, com os dados intactos. Perder **as duas** significa perder os dados, por desenho.
 - **Isolamento no servidor.** A tabela `vaults` tem RLS: cada conta só alcança a própria linha. Visitante sem login não lê nada.
 - **Nada fica salvo no aparelho**, além do último e-mail usado. Ao recarregar a página, a chave some da memória e a senha é pedida de novo.
-- **Bloqueio por inatividade.** Fora do app por mais de 1 minuto, a senha é pedida de novo.
+- **Bloqueio por inatividade.** Fora do app por mais de 1 minuto, a senha é pedida de novo. Depois de **15 minutos**, as chaves e os dados são apagados da memória e o login completo é pedido (exceto se houver uma mudança ainda não salva, que nunca é descartada).
 
 ## Stack
 

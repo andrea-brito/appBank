@@ -111,9 +111,19 @@ O número da versão não faz parte da autenticação do blob. Um servidor malic
 
 **Correção:** incluir `user_id` e `version` no AAD do blob `data` e recusar versão menor que a última vista neste aparelho.
 
+### 7. ✅ Chaves apagadas da memória após 15 minutos fora (feito em 17/11/2026)
+
+Entre 1 e 15 minutos fora do app, o rebloqueio continua sendo só uma camada sobre a tela, pedindo a senha. A partir de **15 minutos** (`FORGET_AFTER_MS`), a página é recarregada (`forgetSession`): chaves, sessão do Supabase e banco descriptografado só existem em memória, então somem. A volta exige o login completo. Antes, o que estiver pendente é salvo. Se não der (sem internet), nada é apagado e vale o rebloqueio comum, porque uma mudança local nunca é descartada. Na tela de entrar, antes do primeiro login, nada acontece, para não apagar o que está sendo digitado nem um link de recuperação.
+
+Verificado no navegador simulando o tempo fora: 30 s mantém aberto; 5 min pede senha com a memória mantida; 16 min apaga e volta ao login; 16 min com mudança feita offline não apaga e a mudança sobe depois; antes do login nada muda.
+
+<details><summary>Análise original</summary>
+
 ### 7. Chaves continuam em memória durante o rebloqueio (baixa)
 
 Depois de 1 minuto fora, o app pede a senha, mas a chave continua na memória da aba. Sem ferramentas de desenvolvedor, como no iPhone, isso não é explorável. Se quiser endurecer: depois de, por exemplo, 15 minutos fora, descartar as chaves e o banco da memória e exigir o login completo.
+
+</details>
 
 ### 8. Site público (baixa, opcional)
 

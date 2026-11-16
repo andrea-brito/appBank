@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 
 import { PasswordInput } from '@/components/PasswordInput';
 import {
+  forgetSession,
   lastEmail,
   recoverAccount,
   recoveryLinkState,
@@ -13,6 +14,8 @@ import {
 
 // Ask for the passphrase again after the page was hidden this long.
 const RELOCK_AFTER_MS = 60_000;
+// After this long away, keys and data are wiped from memory (page reload), not just covered.
+const FORGET_AFTER_MS = 15 * 60_000;
 // The encrypted data sits on a server, so the passphrase must resist offline
 // guessing: longer than the 8 required for a backup file.
 const MIN_ACCOUNT_PASSPHRASE = 12;
@@ -37,6 +40,8 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [everUnlocked, setEverUnlocked] = useState(false);
+  // Same as everUnlocked, readable from the visibility listener (registered once).
+  const signedIn = useRef(false);
   const [error, setError] = useState<string | null>(
     link === 'expired' ? 'O link de recuperação expirou ou já foi usado. Peça outro.' : null,
   );
@@ -69,6 +74,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     setNewCode(null);
     setUnlocked(true);
     setEverUnlocked(true);
+    signedIn.current = true;
   }
 
   function validate(): string | null {
@@ -146,7 +152,15 @@ export function LockGate({ children }: { children: React.ReactNode }) {
       if (hiddenAt.current == null) return;
       const away = Date.now() - hiddenAt.current;
       hiddenAt.current = null;
-      if (away >= RELOCK_AFTER_MS) {
+      // Before the first unlock there is nothing to protect (and reloading would
+      // wipe what is being typed, or a password-recovery link): do nothing.
+      if (!signedIn.current) return;
+      if (away >= FORGET_AFTER_MS) {
+        // Long absence: wipe keys from memory (full login next). If unsaved
+        // changes could not be saved, keep them and just re-lock.
+        setUnlocked(false);
+        void forgetSession();
+      } else if (away >= RELOCK_AFTER_MS) {
         setUnlocked(false); // passphrase again; changes are pulled after it
       } else {
         void pullChanges(); // quick return: still pick up edits from the PC

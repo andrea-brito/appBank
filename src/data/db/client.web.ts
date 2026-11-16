@@ -307,6 +307,20 @@ export async function signOut(): Promise<void> {
   window.location.replace('/');
 }
 
+/**
+ * After a long absence, drop keys, session and decrypted data from memory by
+ * reloading the page (none of them is persisted). Pending changes are saved
+ * first; if that fails (offline) nothing is dropped and false is returned, so
+ * the caller falls back to the passphrase re-lock instead of losing data.
+ */
+export async function forgetSession(): Promise<boolean> {
+  if (dirty) flush();
+  await saving;
+  if (dirty || inFlight) return false;
+  window.location.reload();
+  return true;
+}
+
 /** Sends the Supabase "reset password" e-mail. The link reopens this app. */
 export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
