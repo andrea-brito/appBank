@@ -159,8 +159,9 @@ Risco residual: a AwesomeAPI é um serviço de terceiros. Uma cotação errada v
 
 1. Desligar o cadastro (item 1) e ativar 2FA nas contas (item 2): só configuração, hoje.
 2. ~~CSP e anti-*framing* (item 3)~~ feito.
-3. KDF mais forte (item 4) e histórico de versões (item 5).
-4. Itens 6 a 9 quando sobrar tempo.
+3. ~~KDF mais forte (item 4)~~ e ~~chaves apagadas da memória (item 7)~~ feitos. Falta o histórico de versões (item 5).
+4. Rodar supabase/hardening.sql e conferir o diagnóstico (seção abaixo).
+5. Itens 6, 8 e 9 quando sobrar tempo.
 
 ## Falhas conhecidas do Supabase: situação neste projeto
 
@@ -177,3 +178,32 @@ Auditoria feita com a chave pública (anon) contra o projeto real. Fontes: [chec
 | Blobs gigantes em `wrap_*` | Sem limite | `hardening.sql` limita a 512 caracteres |
 | Cadeia de suprimentos npm | Assinaturas verificadas (`npm audit signatures`); versão do supabase-js fixa | Instalação com `--ignore-scripts` (`.npmrc` e `vercel.json`) |
 | Conta Supabase/GitHub/Vercel sem 2FA | Depende de você | Ativar 2FA |
+
+### Auditoria com a chave pública (17/11/2026)
+Testes feitos como um atacante com só a URL e a chave `anon`, contra o projeto real:
+
+| Teste | Resultado |
+|---|---|
+| Listar a API (OpenAPI) | Bloqueado ("Secret API key required") |
+| Ler, inserir e apagar em `vaults` e `rate_alerts` | Bloqueado (42501) |
+| Schemas `auth` e `vault` | Não expostos |
+| Endpoint admin do Auth | 401 |
+| GraphQL | Extensão desligada |
+| Login anônimo | Desligado |
+| Buckets do Storage | Nenhum |
+| Função `rate-alert` sem segredo | 401 |
+| Segredos no bundle publicado | Nenhum (o `sb_secret_` achado é só o prefixo checado pelo supabase-js) |
+| **Cadastro de novas contas** | **Aberto: único achado, depende de você (item 1)** |
+
+### O que foi alterado por causa disso
+- **`supabase/hardening.sql`** (idempotente, rodar no SQL Editor): limita `wrap_pass` e `wrap_recovery` a 512 caracteres, remove o `EXECUTE` padrão de funções novas em `public` e traz consultas de diagnóstico (tabelas sem RLS, permissões do `anon`, funções executáveis pelo `anon`, políticas `using (true)`, tabelas no Realtime, extensões). O esperado é vazio em todas, exceto nas extensões.
+- **Instalação sem scripts de pacotes:** `.npmrc` com `ignore-scripts=true` e `installCommand: npm ci --ignore-scripts` no `vercel.json`. Um pacote comprometido não executa código no build. Só o `esbuild` tem script de instalação, e o build web foi testado sem ele. `npm audit signatures`: 794 pacotes com assinatura verificada.
+- **Tela padrão é o login**, não o cadastro, já que o cadastro será desligado.
+- **Já existiam:** CSP e anti-*framing* (item 3), KDF reforçado com migração (item 4), chaves apagadas após 15 minutos (item 7), função de e-mail protegida por segredo (item 10), RLS e permissões por coluna.
+
+### Configurações que só o painel resolve
+- Desligar o cadastro (item 1) e ativar 2FA no GitHub, Vercel, Supabase e e-mail (item 2).
+- Rodar o **Security Advisor** (Advisors) e ativar **Secure email change**.
+- Ativar o **Dependabot** no GitHub.
+- As chaves antigas `anon`/`service_role` (JWT) serão descontinuadas até o fim de 2026. O app já usa a chave nova (`sb_publishable_`). Antes de desativar as antigas, confirmar se a função `rate-alert` continua recebendo a chave de serviço.
+- Opcional: limites de taxa e CAPTCHA no Auth, e SSL obrigatório.
