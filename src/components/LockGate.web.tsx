@@ -30,7 +30,7 @@ type Screen = 'signin' | 'signup' | 'forgot' | 'recover' | 'code';
 export function LockGate({ children }: { children: React.ReactNode }) {
   const [link] = useState(recoveryLinkState);
   const [screen, setScreen] = useState<Screen>(() =>
-    link === 'valid' ? 'recover' : lastEmail() ? 'signin' : 'signup',
+    link === 'valid' ? 'recover' : 'signin',
   );
   const [email, setEmail] = useState(lastEmail);
   const [pass, setPass] = useState('');

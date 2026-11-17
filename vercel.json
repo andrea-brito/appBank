@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm ci --ignore-scripts",
   "buildCommand": "npx expo export -p web && node scripts/check-csp.mjs",
   "outputDirectory": "dist",
   "cleanUrls": true,

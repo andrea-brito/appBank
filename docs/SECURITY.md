@@ -161,3 +161,19 @@ Risco residual: a AwesomeAPI é um serviço de terceiros. Uma cotação errada v
 2. ~~CSP e anti-*framing* (item 3)~~ feito.
 3. KDF mais forte (item 4) e histórico de versões (item 5).
 4. Itens 6 a 9 quando sobrar tempo.
+
+## Falhas conhecidas do Supabase: situação neste projeto
+
+Auditoria feita com a chave pública (anon) contra o projeto real. Fontes: [checklist de produção](https://supabase.com/docs/guides/security/production-checklist) e [segurança de npm](https://supabase.com/docs/guides/security/npm-security) do Supabase.
+
+| Risco conhecido | Situação | Ação |
+|---|---|---|
+| RLS desligado / tabelas expostas | Bloqueado (leitura, escrita e delete negados com 42501) | `supabase/hardening.sql` tem o diagnóstico |
+| Cadastro aberto (achado mais comum) | **Aberto** | Dashboard: Authentication > Sign In / Providers > desligar "Allow new users to sign up" |
+| Schemas `auth`/`vault`, GraphQL, login anônimo, endpoint admin | Bloqueados | Nada |
+| Função de e-mail sem autenticação | Exige `x-cron-secret` (401 sem) | Nada |
+| Segredo no bundle publicado | Nenhum (`sb_secret_` achado é só o prefixo checado pelo supabase-js) | Nada |
+| Funções novas executáveis por anon | Padrão do Postgres | `hardening.sql` revoga o padrão |
+| Blobs gigantes em `wrap_*` | Sem limite | `hardening.sql` limita a 512 caracteres |
+| Cadeia de suprimentos npm | Assinaturas verificadas (`npm audit signatures`); versão do supabase-js fixa | Instalação com `--ignore-scripts` (`.npmrc` e `vercel.json`) |
+| Conta Supabase/GitHub/Vercel sem 2FA | Depende de você | Ativar 2FA |
