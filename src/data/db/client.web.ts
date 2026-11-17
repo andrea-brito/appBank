@@ -400,6 +400,19 @@ function flush() {
   saving = saving.then(persist);
 }
 
+// Every sealed payload sent for the pending version bump. If a response was lost
+// after the server applied it, the retry sees 0 rows; finding one of these in
+// the row proves it was our own write, not another device's.
+let attempts: string[] = [];
+async function alreadyApplied(next: number): Promise<boolean> {
+  try {
+    const row = await fetchRow();
+    return row?.version === next && attempts.includes(row.data);
+  } catch {
+    return false;
+  }
+}
+
 async function persist(): Promise<void> {
   if (!dek || conflict || !dirty) return;
   dirty = false;
@@ -407,6 +420,7 @@ async function persist(): Promise<void> {
   try {
     const data = seal(dek, await expoDb.serializeAsync(), nonce(), 'data');
     const next = version + 1;
+    attempts.push(data);
     // Optimistic lock: only overwrite the version we loaded. Zero rows back
     // means another device saved first.
     const { data: rows, error } = await sb()
@@ -415,7 +429,11 @@ async function persist(): Promise<void> {
       .eq('version', version)
       .select('version');
     if (error) throw error;
+    let resave = false;
     if (!rows?.length) {
+      resave = await alreadyApplied(next); // our own lost-response write: the server holds an earlier snapshot
+    }
+    if (!rows?.length && !resave) {
       conflict = true;
       alert(
         'Seus dados foram alterados em outro aparelho. As mudanças feitas aqui desde então NÃO foram ' +
@@ -424,7 +442,12 @@ async function persist(): Promise<void> {
       return;
     }
     version = next;
+    attempts = [];
     warned = false;
+    if (resave) {
+      dirty = true; // this snapshot (with newer edits) is not on the server yet
+      flush();
+    }
   } catch (e) {
     console.error('save failed', e);
     dirty = true;

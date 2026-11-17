@@ -1,6 +1,6 @@
 {
   "installCommand": "npm ci --ignore-scripts",
-  "buildCommand": "npx expo export -p web && node scripts/check-csp.mjs",
+  "buildCommand": "npm run typecheck && npm test && npx expo export -p web && node scripts/check-csp.mjs",
   "outputDirectory": "dist",
   "cleanUrls": true,
   "rewrites": [{ "source": "/month/:key", "destination": "/month/[key]" }],
