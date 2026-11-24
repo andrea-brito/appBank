@@ -43,6 +43,10 @@ Os dados são cifrados **no navegador** antes de ir para o servidor (Supabase). 
 | **Backup** | Arquivo cifrado com uma senha própria, no fim da aba Histórico. Serve para desfazer um erro ou como última saída se perder senha e chave de recuperação. |
 | **Campos** | Valor e data com máscara enquanto digita (teclado numérico no celular). Textos limitados a 250 caracteres. |
 
+## Relatório (CSV / PDF)
+
+Em **Histórico > Relatório do mês ou do ano** dá para baixar os lançamentos de um mês ou de um ano em **CSV** (abre no Excel e no Google Planilhas) ou gerar um **PDF** (resumo, mês a mês, gastos por categoria e lançamentos; na janela de impressão, escolha *Salvar como PDF*). O arquivo sai **sem criptografia**, no seu aparelho. O CSV neutraliza células que começam com `=`, `+`, `-` ou `@` para não virarem fórmulas. Código em `src/domain/report.ts`.
+
 ## Como funciona a segurança
 
 Resumo. O detalhe técnico está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#5-segurança).

@@ -24,6 +24,23 @@ export function pickTextFile(): Promise<string | null> {
 }
 
 /**
+ * Opens the browser print dialog for an HTML page ("Save as PDF" there).
+ * Uses a hidden srcdoc iframe: it inherits the page's CSP (no scripts run in
+ * it) and needs no popup, which Safari would block.
+ */
+export function printHtml(html: string): void {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden';
+  frame.srcdoc = html;
+  frame.onload = () => {
+    frame.contentWindow?.focus();
+    frame.contentWindow?.print();
+    setTimeout(() => frame.remove(), 60_000);
+  };
+  document.body.appendChild(frame);
+}
+
+/**
  * Hands the file to the user: share sheet when available (iOS can save it to
  * Files / iCloud Drive), plain download otherwise. Returns false if the user
  * dismissed the share sheet.

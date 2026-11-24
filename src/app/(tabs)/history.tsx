@@ -71,6 +71,10 @@ export default function HistoryScreen() {
         {view === 'months'
           ? past.map((m, i) => <MonthCard key={m.key} month={m} current={i === 0} />)
           : years.map((y) => <YearCard key={y.year} year={y} />)}
+        <Pressable style={styles.backupLink} onPress={() => router.push('/report')} accessibilityRole="link">
+          <Text style={styles.backupText}>📊 Relatório do mês ou do ano (CSV / PDF)</Text>
+          <Text style={styles.backupHint}>Para analisar seus gastos numa planilha ou imprimir.</Text>
+        </Pressable>
 
         <Pressable
           style={styles.backupLink}

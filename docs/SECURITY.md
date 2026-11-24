@@ -148,6 +148,9 @@ O que foi decidido e verificado (função testada localmente no Deno contra um S
 
 Risco residual: a AwesomeAPI é um serviço de terceiros. Uma cotação errada vinda dela geraria um aviso errado, e o e-mail lembra de conferir o valor antes de comprar. Ela não recebe nenhum dado seu.
 
+### 11. Relatório exportado (CSV / PDF)
+O arquivo gerado fica em claro no aparelho: é uma escolha sua, ao contrário do backup (cifrado). O CSV prefixa com apóstrofo células que começam com `=`, `+`, `-`, `@` (injeção de fórmula). O PDF vem de uma página HTML com texto escapado, impressa num `iframe` `srcdoc` que herda a CSP (sem scripts). Verificado no Chrome com os cabeçalhos reais do `vercel.json`: sem violações.
+
 ## Boas práticas para você
 
 - Guarde a **chave de recuperação** num gerenciador de senhas ou impressa. Evite deixá-la na área de transferência ou num print na galeria.
