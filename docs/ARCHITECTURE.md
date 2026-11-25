@@ -70,6 +70,7 @@ src/domain/
   types.ts            tipos, TEXT_MAX = 250
   installments.ts     splitInstallments, installmentDates, rótulo "(i/n)", irmãs de uma compra
   monthlyHistory.ts   meses passados e futuros, anos, availableCents, gasto por categoria
+  leftover.ts         destino da sobra do mês (Fechar o mês): saldo acumulado, meses pendentes
   category.ts         validação, emojis e cores sugeridos, isSingleEmoji
   goal.ts             goalProgress, parseGoalPeriod
   vault.ts            cofre web: deriveAccount, seal/open, chave de recuperação
@@ -189,6 +190,7 @@ Dentro do SQLite (o mesmo nas duas versões):
 erDiagram
   categories ||--o{ transactions : "categoria"
   goals ||--o{ goal_deposits : "depósitos"
+  goals ||--o{ leftover_allocations : "destino da sobra"
   categories { text id PK; text name; text icon; text color; text kind; int budget_cents }
   transactions { text id PK; text category_id FK; int amount_cents; text kind; text description; int occurred_at; text source; text external_id; int created_at }
   goals { text id PK; text name; text icon; text color; int target_cents; int start_at; int end_at; int archived_at; int created_at }
@@ -214,6 +216,21 @@ No Supabase, só `vaults (user_id PK, version, data, wrap_pass, wrap_recovery, u
 ### Disponível (`availableCents`)
 
 `disponível = entradas − gastos − depósitos líquidos nas metas` do mês. Uma retirada, que é negativa, devolve o valor. É o "Disponível para gastar" do Resumo e o "Sobrou" do Histórico (mês, ano e detalhe). "Saídas" continua sendo só gasto, para orçamento e gastos por categoria não confundirem poupança com despesa.
+
+### Sobra do mês e saldo acumulado (`leftover.ts`, tela `close-month`)
+
+Depois que um mês termina com sobra (`disponível > 0`), o Resumo avisa e a tela **Fechar o mês** deixa dividir a sobra em destinos (tabela `leftover_allocations`, dentro do cofre cifrado):
+
+- **Meta:** cria um depósito na meta, marcado com `allocationId`. Os dois são gravados na mesma transação e removidos juntos.
+- **Ficou na conta:** só registra a decisão; o valor continua no saldo.
+- **Outro:** gasto ou reserva fora do app, com nota livre; o valor sai do saldo.
+
+Regras:
+- Um mês está **fechado** se tem ao menos um destino. **Só meses fechados acumulam**: `disponível do mês = (entradas − saídas − metas) + saldo acumulado`, e o saldo acumulado soma, dos meses fechados anteriores, `sobra − metas − outro`. Assim, ligar o recurso não muda o "Disponível" sozinho.
+- Depósitos com `allocationId` **não entram** em "guardado em metas" do mês (`buildMonthlyHistory` os ignora), senão alocar a sobra de outubro a reduziria depois de decidida. O saldo da meta conta todos os depósitos.
+- A soma dos destinos não passa da sobra. Se a sobra encolher depois (edição), a tela mostra o excesso em vermelho em vez de apagar.
+- Apagar uma meta apaga os destinos que apontavam para ela.
+- O backup inclui os destinos; arquivos antigos, sem eles, ainda restauram.
 
 ### Parcelas (`installments.ts`)
 
@@ -286,6 +303,7 @@ Outros ajustes só da web: `webAlert.ts` (o `Alert.alert` do React Native Web n�
 | --- | --- |
 | `money.test.ts` | Conversão e soma exatas; máscara de moeda tecla a tecla, colar, apagar e limite |
 | `dates.test.ts` | dd/mm/aaaa válido e inválido (31/02, bissexto); máscara de data; ida e volta de centavos |
+| `leftover.test.ts` | Sobra por mês, saldo acumulado só de meses fechados, meses pendentes, depósitos de alocação fora do fluxo, validação do valor |
 | `installments.test.ts` | Parcelas exatas, datas no fim do mês, rótulo, irmãs; histórico mensal e anual; disponível; gasto por categoria; `monthRange` |
 | `category.test.ts` | Nome, emoji único, cor, duplicado por tipo |
 | `goal.test.ts` | Progresso, meta mensal, `parseGoalPeriod`, `isSingleEmoji`; sugestão de economia |

@@ -69,6 +69,8 @@ export const goalDeposits = sqliteTable(
       .notNull()
       .references(() => goals.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(), // may be negative (withdrawal)
+    // Set when the deposit came from allocating a month's leftover to this goal (leftover_allocations.id).
+    allocationId: text('allocation_id'),
     occurredAt: integer('occurred_at').notNull(), // epoch ms
     createdAt: integer('created_at')
       .notNull()
@@ -79,8 +81,27 @@ export const goalDeposits = sqliteTable(
   }),
 );
 
+// What a month's leftover was used for (see domain/leftover.ts). kind = goal | carry | other.
+export const leftoverAllocations = sqliteTable(
+  'leftover_allocations',
+  {
+    id: text('id').primaryKey(),
+    monthKey: text('month_key').notNull(), // '2026-10'
+    kind: text('kind', { enum: ['goal', 'carry', 'other'] }).notNull(),
+    goalId: text('goal_id').references(() => goals.id, { onDelete: 'cascade' }),
+    amountCents: integer('amount_cents').notNull(), // > 0
+    note: text('note').notNull().default(''),
+    createdAt: integer('created_at')
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    monthIdx: index('idx_alloc_month').on(t.monthKey),
+  }),
+);
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type GoalRow = typeof goals.$inferSelect;
 export type GoalDepositRow = typeof goalDeposits.$inferSelect;
+export type LeftoverAllocationRow = typeof leftoverAllocations.$inferSelect;

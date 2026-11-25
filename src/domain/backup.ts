@@ -61,6 +61,18 @@ const goalDeposit = z.object({
   amountCents: int.refine((n) => n !== 0, 'depósito não pode ser zero'),
   occurredAt: int,
   createdAt: int,
+  // Added after v1: optional so older files restore.
+  allocationId: z.string().nullable().default(null),
+});
+
+const leftoverAllocation = z.object({
+  id,
+  monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+  kind: z.enum(['goal', 'carry', 'other']),
+  goalId: id.nullable(),
+  amountCents: int.positive(),
+  note: z.string(),
+  createdAt: int,
 });
 
 const snapshot = z
@@ -69,6 +81,7 @@ const snapshot = z
     transactions: z.array(transaction),
     goals: z.array(goal),
     goalDeposits: z.array(goalDeposit),
+    leftoverAllocations: z.array(leftoverAllocation).default([]),
   })
   .superRefine((s, ctx) => {
     const categoryIds = new Set(s.categories.map((c) => c.id));
@@ -76,6 +89,11 @@ const snapshot = z
     s.transactions.forEach((t, i) => {
       if (t.categoryId != null && !categoryIds.has(t.categoryId)) {
         ctx.addIssue({ code: 'custom', path: ['transactions', i, 'categoryId'], message: 'categoria inexistente no backup' });
+      }
+    });
+    s.leftoverAllocations.forEach((a, i) => {
+      if ((a.kind === 'goal') !== (a.goalId != null) || (a.goalId != null && !goalIds.has(a.goalId))) {
+        ctx.addIssue({ code: 'custom', path: ['leftoverAllocations', i, 'goalId'], message: 'meta inválida na sobra' });
       }
     });
     s.goalDeposits.forEach((d, i) => {
@@ -122,5 +140,6 @@ export function countRows(s: BackupSnapshot) {
     transactions: s.transactions.length,
     goals: s.goals.length,
     goalDeposits: s.goalDeposits.length,
+    leftoverAllocations: s.leftoverAllocations.length,
   };
 }

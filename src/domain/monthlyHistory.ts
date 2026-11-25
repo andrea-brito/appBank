@@ -48,6 +48,8 @@ interface Tx {
 interface Deposit {
   amountCents: Cents;
   occurredAt: number;
+  /** Deposits made by allocating a leftover are not new savings from that month's flow: skipped here. */
+  allocationId?: string | null;
 }
 
 /** What is free to spend: what came in, minus spending, minus what went to goals. */
@@ -93,7 +95,7 @@ export function buildMonthlyHistory(
     if (t.kind === 'income') m.incomeCents += t.amountCents;
     else m.expenseCents += t.amountCents;
   }
-  for (const d of deposits) at(d.occurredAt).savedCents += d.amountCents;
+  for (const d of deposits) if (!d.allocationId) at(d.occurredAt).savedCents += d.amountCents;
   for (const m of months.values()) m.balanceCents = availableCents(m.incomeCents, m.expenseCents, m.savedCents);
 
   // Past: fill every month from the oldest entry up to now.

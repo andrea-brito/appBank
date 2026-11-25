@@ -6,13 +6,14 @@ import { db, schema } from './db/client';
 
 /** Read every table. Order of keys matches BackupSnapshot. */
 export async function readSnapshot(): Promise<BackupSnapshot> {
-  const [categories, transactions, goals, goalDeposits] = await Promise.all([
+  const [categories, transactions, goals, goalDeposits, leftoverAllocations] = await Promise.all([
     db.select().from(schema.categories),
     db.select().from(schema.transactions),
     db.select().from(schema.goals),
     db.select().from(schema.goalDeposits),
+    db.select().from(schema.leftoverAllocations),
   ]);
-  return { categories, transactions, goals, goalDeposits };
+  return { categories, transactions, goals, goalDeposits, leftoverAllocations };
 }
 
 export interface RestoreResult {
@@ -84,6 +85,9 @@ export function restoreSnapshot(s: BackupSnapshot): RestoreResult {
         .all().length;
     }
 
+    for (const rows of chunks(s.leftoverAllocations)) {
+      tx.insert(schema.leftoverAllocations).values(rows).onConflictDoNothing().run();
+    }
     return { categories: s.categories.length, transactions, goals, goalDeposits };
   });
 }

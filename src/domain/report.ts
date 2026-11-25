@@ -49,13 +49,13 @@ export interface Report {
 
 export function buildReport(
   txns: readonly Tx[],
-  deposits: readonly { amountCents: Cents; occurredAt: number }[],
+  deposits: readonly { amountCents: Cents; occurredAt: number; allocationId?: string | null }[],
   categories: readonly Cat[],
   range: { from: number; to: number; label: string },
 ): Report {
   const inRange = <T extends { occurredAt: number }>(x: T) => x.occurredAt >= range.from && x.occurredAt <= range.to;
   const t = txns.filter(inRange).sort((a, b) => a.occurredAt - b.occurredAt);
-  const d = deposits.filter(inRange);
+  const d = deposits.filter(inRange).filter((x) => !x.allocationId); // leftover allocations are not new savings
   const names = new Map(categories.map((c) => [c.id, c.name]));
   const nameOf = (id: string | null) => (id && names.get(id)) || 'Sem categoria';
   const income = t.reduce((s, x) => s + (x.kind === 'income' ? x.amountCents : 0), 0);

@@ -1,3 +1,4 @@
+import { format } from 'date-fns';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
@@ -5,6 +6,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { ProgressBar } from '@/components/ProgressBar';
 import { allDepositsQuery } from '@/data/goalRepository';
+import { allocationsQuery } from '@/data/leftoverRepository';
 import {
   categoriesQuery,
   deleteTransactionOrPurchase,
@@ -12,6 +14,7 @@ import {
 } from '@/data/transactionRepository';
 import type { TransactionRow } from '@/data/db/schema';
 import { parseInstallment } from '@/domain/installments';
+import { allocationsOf, unallocated } from '@/domain/leftover';
 import { formatBRL, sumCents } from '@/domain/money';
 import { buildMonthlyHistory, monthRange, spendByCategory } from '@/domain/monthlyHistory';
 
@@ -22,12 +25,15 @@ export default function MonthScreen() {
   const { data: txns } = useLiveQuery(monthTransactionsQuery(range.from, range.to), [range.from, range.to]);
   const { data: categories } = useLiveQuery(categoriesQuery());
   const { data: deposits } = useLiveQuery(allDepositsQuery());
+  const { data: allocations } = useLiveQuery(allocationsQuery());
 
   const summary = useMemo(() => {
     const monthDeposits = (deposits ?? []).filter((d) => d.occurredAt >= range.from && d.occurredAt <= range.to);
     return buildMonthlyHistory(txns ?? [], monthDeposits, new Date(range.from)).past[0];
   }, [txns, deposits, range]);
   const byCategory = useMemo(() => spendByCategory(txns ?? []), [txns]);
+  const closable = String(key) < format(new Date(), 'yyyy-MM'); // only months that already ended
+  const closedParts = allocationsOf(allocations ?? [], String(key));
   const catMap = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
 
   if (range.to < range.from) {
@@ -75,6 +81,22 @@ export default function MonthScreen() {
             <Cell label="Guardado em metas" value={formatBRL(summary.savedCents)} color="#4338ca" />
           </View>
         </View>
+
+        {closable && (closedParts.length > 0 || summary.balanceCents > 0) && (
+          <Pressable
+            style={styles.card}
+            onPress={() => router.push({ pathname: '/close-month', params: { key: String(key) } })}
+            accessibilityRole="link"
+          >
+            <Text style={styles.section}>Destino da sobra</Text>
+            <Text style={styles.catValue}>
+              {closedParts.length === 0
+                ? `Sobraram ${formatBRL(summary.balanceCents)}. Para onde foi o dinheiro? Fechar o mês ›`
+                : `Sem destino: ${formatBRL(Math.max(0, unallocated(summary.balanceCents, allocations ?? [], String(key))))} · Ver ou ajustar ›`
+              }
+            </Text>
+          </Pressable>
+        )}
 
         {byCategory.length > 0 && (
           <View style={styles.card}>

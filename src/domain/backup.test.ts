@@ -36,8 +36,12 @@ const data: BackupSnapshot = {
     { id: 'g1', name: 'Viagem', icon: '✈️', color: '#6366f1', targetCents: 500000, startAt: 1, endAt: null, archivedAt: null, createdAt: 1, currency: 'EUR' },
   ],
   goalDeposits: [
-    { id: 'd1', goalId: 'g1', amountCents: 10000, occurredAt: 2, createdAt: 2 },
-    { id: 'd2', goalId: 'g1', amountCents: -2500, occurredAt: 3, createdAt: 3 },
+    { id: 'd1', goalId: 'g1', amountCents: 10000, occurredAt: 2, createdAt: 2, allocationId: null },
+    { id: 'd2', goalId: 'g1', amountCents: -2500, occurredAt: 3, createdAt: 3, allocationId: 'a1' },
+  ],
+  leftoverAllocations: [
+    { id: 'a1', monthKey: '2026-10', kind: 'goal', goalId: 'g1', amountCents: 2500, note: '', createdAt: 3 },
+    { id: 'a2', monthKey: '2026-10', kind: 'other', goalId: null, amountCents: 1000, note: 'presente', createdAt: 4 },
   ],
 };
 
@@ -55,7 +59,21 @@ const old = JSON.parse(text);
 delete old.data.goals[0].currency;
 check('old backup without currency restores as BRL', parseBackup(JSON.stringify(old)).data.goals[0].currency === 'BRL');
 check('unknown currency rejected', throwsWith(() => parseBackup(JSON.stringify({ ...old, data: { ...old.data, goals: [{ ...old.data.goals[0], currency: 'BTC' }] } }))) != null);
-
+// Files made before leftover allocations existed still restore (no allocations, deposits untagged).
+delete old.data.leftoverAllocations;
+delete old.data.goalDeposits[0].allocationId;
+const oldParsed = parseBackup(JSON.stringify(old)).data;
+check('old backup without allocations restores', oldParsed.leftoverAllocations.length === 0 && oldParsed.goalDeposits[0].allocationId === null);
+check('allocation counts', counts.leftoverAllocations === 2);
+const badAlloc = (f: (a: { goalId: string | null; amountCents: number }[]) => void) => {
+  const c = JSON.parse(text);
+  f(c.data.leftoverAllocations);
+  return throwsWith(() => parseBackup(JSON.stringify(c)));
+};
+check('goal allocation to missing goal rejected', badAlloc((a) => (a[0].goalId = 'nao-existe')) != null);
+check('goal allocation without goal rejected', badAlloc((a) => (a[0].goalId = null)) != null);
+check('non-goal allocation with a goal rejected', badAlloc((a) => (a[1].goalId = 'g1')) != null);
+check('zero allocation rejected', badAlloc((a) => (a[1].amountCents = 0)) != null);
 // Corrupted / wrong input.
 check('not json -> clear message', (throwsWith(() => parseBackup('xxx')) ?? '').includes('corrompido'));
 check('wrong format rejected', throwsWith(() => parseBackup(JSON.stringify({ ...JSON.parse(text), format: 'outro' }))) != null);
@@ -81,7 +99,7 @@ const orphanDep = bad((d) => (d.goalDeposits[0].goalId = 'nao-existe'));
 check('deposit with unknown goal rejected', orphanDep != null && orphanDep.includes('meta inexistente'));
 
 // An empty backup (new install) is valid.
-const empty = parseBackup(JSON.stringify(buildBackup({ categories: [], transactions: [], goals: [], goalDeposits: [] })));
+const empty = parseBackup(JSON.stringify(buildBackup({ categories: [], transactions: [], goals: [], goalDeposits: [], leftoverAllocations: [] })));
 check('empty backup is valid', countRows(empty.data).transactions === 0);
 
 if (failures === 0) {

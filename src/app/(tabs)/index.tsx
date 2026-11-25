@@ -1,4 +1,4 @@
-import { addMonths } from 'date-fns';
+import { addMonths, format } from 'date-fns';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { db, schema } from '@/data/db/client';
 import { allDepositsQuery } from '@/data/goalRepository';
+import { allocationsQuery } from '@/data/leftoverRepository';
 import { useQuotes } from '@/components/useQuotes';
 import { alertsSupported, getRateAlert, type RateAlert } from '@/data/rateAlert';
 import { canSignOut, signOut } from '@/data/session';
@@ -14,7 +15,8 @@ import { categoriesQuery, recentTransactionsQuery } from '@/data/transactionRepo
 import { budgetStatus } from '@/domain/budgetStatus';
 import { centsToRate4, formatRate, FX_PAIR_LABEL, isAtOrBelowTarget, type FxPair, type Rate4 } from '@/domain/fx';
 import { formatBRL, sumCents } from '@/domain/money';
-import { availableCents } from '@/domain/monthlyHistory';
+import { carryInto, pendingMonths } from '@/domain/leftover';
+import { availableCents, buildMonthlyHistory } from '@/domain/monthlyHistory';
 import { currentMonth } from '@/domain/period';
 
 function confirmSignOut() {
@@ -55,6 +57,7 @@ export default function Dashboard() {
   const { data: allTxns } = useLiveQuery(db.select().from(schema.transactions));
   const { data: categories } = useLiveQuery(categoriesQuery());
   const { data: deposits } = useLiveQuery(allDepositsQuery());
+  const { data: allocations } = useLiveQuery(allocationsQuery());
   const fxHit = useFxHit();
 
   const monthTxns = (allTxns ?? []).filter(
@@ -74,9 +77,15 @@ export default function Dashboard() {
   );
   // Net moved into goals this month (withdrawals are negative): not free to spend.
   const savedCents = sumCents(
-    (deposits ?? []).filter((d) => d.occurredAt >= period.from && d.occurredAt <= period.to).map((d) => d.amountCents),
+    (deposits ?? []).filter((d) => d.occurredAt >= period.from && d.occurredAt <= period.to && !d.allocationId).map((d) => d.amountCents),
   );
-  const balanceCents = availableCents(incomeCents, expenseCents, savedCents);
+  // Leftover of earlier months the user closed (see domain/leftover.ts), and months still waiting for a decision.
+  const { carry, pending } = useMemo(() => {
+    const key = format(new Date(), 'yyyy-MM');
+    const { past } = buildMonthlyHistory(allTxns ?? [], deposits ?? []);
+    return { carry: carryInto(past, allocations ?? [], key), pending: pendingMonths(past, allocations ?? [], key) };
+  }, [allTxns, deposits, allocations]);
+  const balanceCents = availableCents(incomeCents, expenseCents, savedCents) + carry;
 
   // Budget alerts: categories at warning (>=70%) or over (>100%) this month.
   const alerts = useMemo(() => {
@@ -124,6 +133,11 @@ export default function Dashboard() {
           <Text style={[styles.balanceValue, { color: balanceCents >= 0 ? '#22c55e' : '#ef4444' }]}>
             {formatBRL(balanceCents)}
           </Text>
+          {carry !== 0 && (
+            <Text style={styles.savedNote}>
+              {carry > 0 ? '💼' : '⚠️'} Inclui {formatBRL(Math.abs(carry))} {carry > 0 ? 'que sobraram' : 'a menos'} de meses anteriores
+            </Text>
+          )}
           {savedCents !== 0 && (
             <Text style={styles.savedNote}>
               {savedCents > 0
@@ -132,6 +146,19 @@ export default function Dashboard() {
             </Text>
           )}
         </View>
+
+        {pending.length > 0 && (
+          <Pressable
+            style={styles.pending}
+            onPress={() => router.push({ pathname: '/close-month', params: { key: pending[0].key } })}
+            accessibilityRole="link"
+          >
+            <Text style={styles.pendingText}>
+              🗓️ Sobraram {formatBRL(pending[0].balanceCents)} em {pending[0].label}. Para onde foi o dinheiro? Fechar o mês ›
+              {pending.length > 1 ? `  (+ mês(es))` : ''}
+            </Text>
+          </Pressable>
+        )}
 
         {fxHit && (
           <Pressable style={styles.fxHit} onPress={() => router.push('/fx')} accessibilityRole="link">
@@ -235,6 +262,8 @@ const styles = StyleSheet.create({
   balanceValue: { fontSize: 26, fontWeight: '800' },
   savedNote: { color: '#4338ca', fontSize: 13, fontWeight: '600', marginTop: 2 },
   committed: { backgroundColor: '#eef2ff', borderRadius: 10, padding: 12 },
+  pending: { backgroundColor: '#fef3c7', borderRadius: 10, padding: 12 },
+  pendingText: { color: '#92400e', fontSize: 13, fontWeight: '700' },
   fxHit: { backgroundColor: '#dcfce7', borderRadius: 10, padding: 12 },
   fxHitText: { color: '#166534', fontSize: 13, fontWeight: '700' },
   committedText: { color: '#3730a3', fontSize: 13, fontWeight: '600' },
