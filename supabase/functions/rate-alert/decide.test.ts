@@ -25,13 +25,21 @@ function check(label: string, cond: boolean) {
   }
 }
 
-const base: AlertRow = { user_id: 'u', pair: 'EUR-BRL', target_cents: 600, enabled: true, was_below: false, last_notified_at: null };
+const base: AlertRow = { user_id: 'u', pair: 'EUR-BRL', target_cents: 600, enabled: true, was_below: false, last_notified_at: null, last_notified_rate: null };
 const now = new Date('2026-11-16T14:00:00Z'); // Monday 11:00 in Brasília
 
 check('above target: no e-mail', !decide(base, 62420, now).notify && !decide(base, 62420, now).wasBelow);
 check('crosses below: e-mail', decide(base, 59800, now).notify && decide(base, 59800, now).wasBelow);
 check('exactly at target counts', decide(base, 60000, now).notify);
 check('still below at next check: no repeat', !decide({ ...base, was_below: true }, 59500, now).notify);
+const emailed598 = { ...base, was_below: true, last_notified_rate: 5.98, last_notified_at: new Date(now.getTime() - 24 * 3600_000).toISOString() };
+check('falling R$ 0,05 more: e-mail', decide(emailed598, 59300, now).notify && decide(emailed598, 59300, now).kind === 'falling');
+check('falling only R$ 0,04: no e-mail', !decide(emailed598, 59400, now).notify);
+check('falling but emailed 1h ago: no e-mail', !decide({ ...emailed598, last_notified_at: new Date(now.getTime() - 3600_000).toISOString() }, 59000, now).notify);
+check('below with no last_notified_rate (old row): no e-mail', !decide({ ...emailed598, last_notified_rate: null }, 50000, now).notify);
+check('crossing is kind target', decide(base, 59800, now).kind === 'target');
+const fm = emailFor('EUR-BRL', 59300, 600, 'https://x', 'ptax', now, 'falling');
+check('falling e-mail wording', fm.subject.includes('segue em baixa') && fm.text.includes('bom momento para comprar') && fm.html.includes('Segue em baixa'));
 check('goes back above: resets', decide({ ...base, was_below: true }, 60100, now).wasBelow === false);
 const notifiedAnHourAgo = { ...base, last_notified_at: new Date(now.getTime() - 3600_000).toISOString() };
 check('crosses again within 20h: no e-mail', !decide(notifiedAnHourAgo, 59000, now).notify);

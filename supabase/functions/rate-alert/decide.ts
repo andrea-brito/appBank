@@ -72,28 +72,38 @@ export interface AlertRow {
   enabled: boolean;
   was_below: boolean;
   last_notified_at: string | null;
+  /** Rate (in reais) of the last e-mail sent; null before the first one. */
+  last_notified_rate: number | null;
 }
 
 export interface Decision {
   /** Send the e-mail now. */
   notify: boolean;
+  /** 'target': just crossed the target. 'falling': keeps dropping after an e-mail. */
+  kind: 'target' | 'falling';
   /** New value for was_below. */
   wasBelow: boolean;
   rate: number;
 }
 
 const MIN_HOURS_BETWEEN_EMAILS = 20;
+/** While below target, e-mail again when the rate is this much under the last e-mailed rate (R$ 0,05). */
+const FALLING_STEP = 500;
 
 /**
  * E-mail when the rate is at/below the target AND it was not already below at
- * the last check (one e-mail per crossing, not one per check), and never more
- * than once per ~day even if it oscillates around the target.
+ * the last check (one e-mail per crossing, not one per check). While it stays
+ * below, e-mail again each time it drops FALLING_STEP under the last e-mailed
+ * rate. Never more than once per ~day.
  */
 export function decide(alert: AlertRow, rate: number, now: Date): Decision {
   const below = alert.enabled && rate > 0 && rate <= alert.target_cents * 100;
   const last = alert.last_notified_at ? Date.parse(alert.last_notified_at) : NaN;
   const cooledDown = Number.isNaN(last) || now.getTime() - last >= MIN_HOURS_BETWEEN_EMAILS * 3600_000;
-  return { notify: below && !alert.was_below && cooledDown, wasBelow: below, rate };
+  const lastRate = alert.last_notified_rate == null ? NaN : Math.round(alert.last_notified_rate * 10_000);
+  const crossed = below && !alert.was_below;
+  const falling = below && alert.was_below && rate <= lastRate - FALLING_STEP; // NaN compares false
+  return { notify: (crossed || falling) && cooledDown, kind: crossed ? 'target' : 'falling', wasBelow: below, rate };
 }
 
 export type QuoteSource = 'awesomeapi' | 'ptax';
@@ -127,6 +137,7 @@ export function emailFor(
   appUrl: string,
   source: QuoteSource = 'awesomeapi',
   at: Date = new Date(),
+  kind: 'target' | 'falling' = 'target',
 ) {
   const label = PAIR_LABEL[pair];
   const target = targetCents * 100;
@@ -136,8 +147,13 @@ export function emailFor(
   const sourceLabel = SOURCE_LABEL[source];
   const safeLink = escapeHtml(link);
 
+  const falling = kind === 'falling';
+  const headline = falling ? '📉 Segue em baixa!' : '💶 Chegou no seu preço!';
+
   const text =
-    `O ${label.toLowerCase()} está em ${formatRate(rate)} (venda), no seu alvo de até ${formatRate(target)}.\n` +
+    (falling
+      ? `O ${label.toLowerCase()} segue em baixa e está em ${formatRate(rate)} (venda). Pode ser um bom momento para comprar.\n`
+      : `O ${label.toLowerCase()} está em ${formatRate(rate)} (venda), no seu alvo de até ${formatRate(target)}.\n`) +
     (below > 0 ? `São ${formatRate(below)} abaixo do alvo.\n` : '') +
     `\nCotação de ${when} (${sourceLabel}).\n\n` +
     `Ver no appBank: ${link}\n\n` +
@@ -153,13 +169,13 @@ export function emailFor(
 <title>${escapeHtml(label)} no seu preço</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(`${label} a ${formatRate(rate)}, no seu alvo de até ${formatRate(target)}.`)}</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(falling ? `${label} segue em baixa: ${formatRate(rate)}. Bom momento para comprar.` : `${label} a ${formatRate(rate)}, no seu alvo de até ${formatRate(target)}.`)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">
   <tr><td align="center" style="padding:24px 12px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
       <tr><td style="background:#4f46e5;padding:20px 24px;color:#ffffff;">
         <div style="font-size:14px;font-weight:600;opacity:.9;">appBank · Câmbio</div>
-        <div style="font-size:22px;font-weight:800;margin-top:4px;">💶 Chegou no seu preço!</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;">${headline}</div>
       </td></tr>
       <tr><td style="padding:24px;">
         <div style="font-size:14px;color:#4b5563;">${escapeHtml(label)} agora (venda)</div>
@@ -191,5 +207,8 @@ export function emailFor(
 </body>
 </html>`;
 
-  return { subject: `💶 ${label} a ${formatRate(rate)}: chegou no seu preço`, text, html };
+  const subject = falling
+    ? `📉 ${label} segue em baixa: ${formatRate(rate)}`
+    : `💶 ${label} a ${formatRate(rate)}: chegou no seu preço`;
+  return { subject, text, html };
 }

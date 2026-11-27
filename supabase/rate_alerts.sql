@@ -16,8 +16,12 @@ create table if not exists public.rate_alerts (
   last_rate numeric(12, 4),
   last_checked_at timestamptz,
   last_notified_at timestamptz,
+  last_notified_rate numeric(12, 4),           -- rate in the last e-mail: "still falling" is measured from it
   updated_at timestamptz not null default now()
 );
+
+-- For databases created before "still falling" e-mails (safe to re-run):
+alter table public.rate_alerts add column if not exists last_notified_rate numeric(12, 4);
 
 alter table public.rate_alerts enable row level security;
 

@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
   const sb = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
   const { data: alerts, error } = await sb
     .from('rate_alerts')
-    .select('user_id, pair, target_cents, enabled, was_below, last_notified_at')
+    .select('user_id, pair, target_cents, enabled, was_below, last_notified_at, last_notified_rate')
     .eq('enabled', true);
   if (error) return json({ error: 'db read failed' }, 500);
   if (!alerts?.length) return json({ checked: 0 });
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
       try {
         const { data } = await sb.auth.admin.getUserById(alert.user_id);
         const email = data?.user?.email;
-        const mail = emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'), sources[alert.pair] as QuoteSource, now);
+        const mail = emailFor(alert.pair as Pair, rate, alert.target_cents, env('APP_URL'), sources[alert.pair] as QuoteSource, now, d.kind);
         if (email && (await sendEmail(email, mail))) {
           notifiedAt = now.toISOString();
           sent++;
@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
         was_below: d.notify && !notifiedAt ? false : d.wasBelow,
         last_rate: rate / 10_000,
         last_checked_at: now.toISOString(),
-        ...(notifiedAt ? { last_notified_at: notifiedAt } : {}),
+        ...(notifiedAt ? { last_notified_at: notifiedAt, last_notified_rate: rate / 10_000 } : {}),
       })
       .eq('user_id', alert.user_id);
   }
